@@ -8,62 +8,64 @@ public class PrototypeSetup
     {
         EnsureLayer("Ground");
 
+        Sprite whiteSprite = CreateWhiteSprite();
+
         // 地面
-        GameObject ground = GameObject.CreatePrimitive(PrimitiveType.Cube);
-        ground.name = "Ground";
-        ground.transform.localScale = new Vector3(60f, 1f, 12f);
+        GameObject ground = new GameObject("Ground");
+        ground.transform.localScale = new Vector3(60f, 1f, 1f);
         ground.transform.position = new Vector3(20f, -0.5f, 0f);
         ground.layer = LayerMask.NameToLayer("Ground");
-        ground.GetComponent<Renderer>().sharedMaterial = CreateMaterial(Color.gray, "GroundMat");
+        AddSprite(ground, whiteSprite, Color.gray);
+        Rigidbody2D groundRb = ground.AddComponent<Rigidbody2D>();
+        groundRb.bodyType = RigidbodyType2D.Static;
+        ground.AddComponent<BoxCollider2D>();
 
         // 玩家
-        GameObject player = GameObject.CreatePrimitive(PrimitiveType.Cube);
-        player.name = "Player";
+        GameObject player = new GameObject("Player");
         player.transform.position = new Vector3(0f, 1f, 0f);
-        Rigidbody prb = player.AddComponent<Rigidbody>();
+        AddSprite(player, whiteSprite, new Color(0.2f, 0.6f, 1f));
+        Rigidbody2D prb = player.AddComponent<Rigidbody2D>();
         prb.mass = 1f;
+        player.AddComponent<BoxCollider2D>();
         player.AddComponent<PlayerController>();
-        player.GetComponent<Renderer>().sharedMaterial = CreateMaterial(new Color(0.2f, 0.6f, 1f), "PlayerMat");
 
         // 导电易拉罐
         for (int i = 0; i < 5; i++)
         {
-            GameObject can = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-            can.name = "Can_" + i;
+            GameObject can = new GameObject("Can_" + i);
             can.transform.position = new Vector3(6f + i * 3f, 0.5f, 0f);
-            can.transform.localScale = new Vector3(0.6f, 0.5f, 0.6f);
-            Rigidbody crb = can.AddComponent<Rigidbody>();
+            can.transform.localScale = new Vector3(0.8f, 0.8f, 1f);
+            AddSprite(can, whiteSprite, Color.red);
+            Rigidbody2D crb = can.AddComponent<Rigidbody2D>();
             crb.mass = 0.5f;
+            can.AddComponent<CircleCollider2D>();
             can.AddComponent<ConductiveObject>();
-            can.GetComponent<Renderer>().sharedMaterial = CreateMaterial(Color.red, "CanMat");
         }
 
         // 积水滩（触发器）
-        GameObject puddle = GameObject.CreatePrimitive(PrimitiveType.Cube);
-        puddle.name = "WaterPuddle";
+        GameObject puddle = new GameObject("WaterPuddle");
         puddle.transform.position = new Vector3(18f, 0.05f, 0f);
-        puddle.transform.localScale = new Vector3(5f, 0.1f, 4f);
-        GameObject.DestroyImmediate(puddle.GetComponent<Collider>());
-        BoxCollider pcol = puddle.AddComponent<BoxCollider>();
+        puddle.transform.localScale = new Vector3(5f, 1f, 1f);
+        AddSprite(puddle, whiteSprite, new Color(0f, 0.6f, 1f, 0.5f));
+        BoxCollider2D pcol = puddle.AddComponent<BoxCollider2D>();
         pcol.isTrigger = true;
         puddle.AddComponent<WaterPuddle>();
-        puddle.GetComponent<Renderer>().sharedMaterial = CreateTransparentMaterial(new Color(0f, 0.6f, 1f, 0.5f), "PuddleMat");
 
         // 绝缘块墙
-        GameObject insulator = GameObject.CreatePrimitive(PrimitiveType.Cube);
-        insulator.name = "Insulator";
+        GameObject insulator = new GameObject("Insulator");
         insulator.transform.position = new Vector3(26f, 1.5f, 0f);
-        insulator.transform.localScale = new Vector3(1f, 3f, 5f);
+        insulator.transform.localScale = new Vector3(1f, 3f, 1f);
         insulator.layer = LayerMask.NameToLayer("Ground");
-        insulator.GetComponent<Renderer>().sharedMaterial = CreateMaterial(Color.green, "InsulatorMat");
+        AddSprite(insulator, whiteSprite, Color.green);
+        Rigidbody2D insRb = insulator.AddComponent<Rigidbody2D>();
+        insRb.bodyType = RigidbodyType2D.Static;
+        insulator.AddComponent<BoxCollider2D>();
 
         // 终点框（可视化）
-        GameObject finish = GameObject.CreatePrimitive(PrimitiveType.Cube);
-        finish.name = "FinishArea";
-        finish.transform.position = new Vector3(45f, 0.5f, 0f);
-        finish.transform.localScale = new Vector3(3f, 2f, 3f);
-        DestroyImmediate(finish.GetComponent<Collider>());
-        finish.GetComponent<Renderer>().sharedMaterial = CreateTransparentMaterial(new Color(1f, 0.8f, 0f, 0.4f), "FinishMat");
+        GameObject finish = new GameObject("FinishArea");
+        finish.transform.position = new Vector3(45f, 1f, 0f);
+        finish.transform.localScale = new Vector3(3f, 3f, 1f);
+        AddSprite(finish, whiteSprite, new Color(1f, 0.8f, 0f, 0.4f));
 
         // 摄像机
         Camera mainCam = Camera.main;
@@ -73,12 +75,16 @@ public class PrototypeSetup
             camObj.tag = "MainCamera";
             mainCam = camObj.AddComponent<Camera>();
         }
+        mainCam.orthographic = true;
+        mainCam.orthographicSize = 8f;
+        mainCam.transform.position = new Vector3(0f, 3f, -10f);
+
         CameraFollow cf = mainCam.gameObject.GetComponent<CameraFollow>();
         if (cf == null) cf = mainCam.gameObject.AddComponent<CameraFollow>();
         cf.target = player.transform;
-        cf.offset = new Vector3(0f, 6f, -12f);
+        cf.offset = new Vector3(0f, 3f, -10f);
 
-        // 灯光
+        // 灯光（2D 也保留一个平行光用于颜色）
         if (Object.FindObjectOfType<Light>() == null)
         {
             GameObject light = new GameObject("Directional Light");
@@ -88,31 +94,23 @@ public class PrototypeSetup
         }
 
         Selection.activeGameObject = player;
-        EditorUtility.DisplayDialog("电极弹射", "核心原型场景搭建完成！\n\n按 Ctrl+P 运行，用 A/D 或 ←/→ 控制左右落点。", "确定");
+        EditorUtility.DisplayDialog("电极弹射", "2D 核心原型场景搭建完成！\n\n按 Ctrl+P 运行，用 A/D 或 ←/→ 控制左右落点。", "确定");
     }
 
-    static Material CreateMaterial(Color color, string name)
+    static void AddSprite(GameObject go, Sprite sprite, Color color)
     {
-        Material mat = new Material(Shader.Find("Standard"));
-        mat.color = color;
-        mat.name = name;
-        return mat;
+        SpriteRenderer sr = go.AddComponent<SpriteRenderer>();
+        sr.sprite = sprite;
+        sr.color = color;
+        sr.sortingOrder = 0;
     }
 
-    static Material CreateTransparentMaterial(Color color, string name)
+    static Sprite CreateWhiteSprite()
     {
-        Material mat = new Material(Shader.Find("Standard"));
-        mat.name = name;
-        mat.color = color;
-        mat.SetFloat("_Mode", 3f);
-        mat.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
-        mat.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
-        mat.SetInt("_ZWrite", 0);
-        mat.DisableKeyword("_ALPHATEST_ON");
-        mat.EnableKeyword("_ALPHABLEND_ON");
-        mat.DisableKeyword("_ALPHAPREMULTIPLY_ON");
-        mat.renderQueue = 3000;
-        return mat;
+        Texture2D tex = new Texture2D(2, 2);
+        tex.SetPixels(new Color[] { Color.white, Color.white, Color.white, Color.white });
+        tex.Apply();
+        return Sprite.Create(tex, new Rect(0, 0, 2, 2), new Vector2(0.5f, 0.5f), 2f);
     }
 
     static void EnsureLayer(string name)
