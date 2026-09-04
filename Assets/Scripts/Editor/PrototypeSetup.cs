@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEditor;
+using System.IO;
 
 public class PrototypeSetup
 {
@@ -8,7 +9,7 @@ public class PrototypeSetup
     {
         EnsureLayer("Ground");
 
-        Sprite whiteSprite = CreateWhiteSprite();
+        Sprite whiteSprite = GetOrCreateWhiteSprite();
 
         // 地面
         GameObject ground = new GameObject("Ground");
@@ -105,12 +106,50 @@ public class PrototypeSetup
         sr.sortingOrder = 0;
     }
 
-    static Sprite CreateWhiteSprite()
+    /// <summary>
+    /// 生成或复用项目里的白色 Sprite 资源，这样场景保存后也不会丢失图片。
+    /// </summary>
+    static Sprite GetOrCreateWhiteSprite()
     {
-        Texture2D tex = new Texture2D(2, 2);
-        tex.SetPixels(new Color[] { Color.white, Color.white, Color.white, Color.white });
-        tex.Apply();
-        return Sprite.Create(tex, new Rect(0, 0, 2, 2), new Vector2(0.5f, 0.5f), 2f);
+        string folder = "Assets/PrototypeAssets";
+        string texPath = folder + "/WhiteTexture.png";
+        string spritePath = folder + "/WhiteSprite.asset";
+
+        if (!AssetDatabase.IsValidFolder(folder))
+            AssetDatabase.CreateFolder("Assets", "PrototypeAssets");
+
+        Sprite existing = AssetDatabase.LoadAssetAtPath<Sprite>(spritePath);
+        if (existing != null)
+            return existing;
+
+        Texture2D tex;
+        if (File.Exists(texPath))
+        {
+            AssetDatabase.ImportAsset(texPath);
+            tex = AssetDatabase.LoadAssetAtPath<Texture2D>(texPath);
+        }
+        else
+        {
+            tex = new Texture2D(2, 2);
+            tex.SetPixels(new Color[] { Color.white, Color.white, Color.white, Color.white });
+            tex.Apply();
+            File.WriteAllBytes(texPath, tex.EncodeToPNG());
+            AssetDatabase.ImportAsset(texPath);
+            tex = AssetDatabase.LoadAssetAtPath<Texture2D>(texPath);
+        }
+
+        TextureImporter importer = AssetImporter.GetAtPath(texPath) as TextureImporter;
+        if (importer != null)
+        {
+            importer.textureType = TextureImporterType.Sprite;
+            importer.spritePixelsPerUnit = 2f;
+            importer.SaveAndReimport();
+        }
+
+        Sprite sprite = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f), 2f);
+        AssetDatabase.CreateAsset(sprite, spritePath);
+        AssetDatabase.SaveAssets();
+        return sprite;
     }
 
     static void EnsureLayer(string name)
