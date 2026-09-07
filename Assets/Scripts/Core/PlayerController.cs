@@ -94,16 +94,17 @@ public class PlayerController : MonoBehaviour
     {
         if (col == null) return false;
 
-        float checkDist = 0.15f;
-        Vector2 origin = transform.position;
+        // 从碰撞体侧边边缘发出，不是从中心
+        float edgeX = dir > 0 ? col.bounds.max.x : col.bounds.min.x;
+        Vector2 origin = new Vector2(edgeX + (dir > 0 ? 0.01f : -0.01f), transform.position.y);
         Vector2 direction = new Vector2(Mathf.Sign(dir), 0f);
+        float checkDist = 0.1f;
 
         int originalLayer = gameObject.layer;
         gameObject.layer = 2; // IgnoreRaycast
         RaycastHit2D hit = Physics2D.Raycast(origin, direction, checkDist);
         gameObject.layer = originalLayer;
 
-        // 只检测侧面的墙，不检测地面（normal.y ≈ 0 表示侧面碰撞）
         return hit.collider != null && Mathf.Abs(hit.normal.x) > 0.5f;
     }
 
