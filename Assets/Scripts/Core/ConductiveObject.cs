@@ -6,7 +6,7 @@ public class ConductiveObject : MonoBehaviour, IConductive
 {
     [Header("爆炸参数")]
     [Tooltip("基础爆炸推力")]
-    public float baseExplosionForce = 8f;
+    public float baseExplosionForce = 15f;
     [Tooltip("爆炸影响半径（仅用于推开附近刚体）")]
     public float explosionRadius = 1.5f;
 
@@ -18,7 +18,7 @@ public class ConductiveObject : MonoBehaviour, IConductive
     [Tooltip("碎片存活时间（秒）")]
     public float shardLifetime = 2f;
     [Tooltip("碎片大小")]
-    public float shardSize = 0.35f;
+    public float shardSize = 0.5f;
 
     [Header("连锁与过载")]
     [Tooltip("最大连锁层数，防止无限递归")]
@@ -51,9 +51,11 @@ public class ConductiveObject : MonoBehaviour, IConductive
 
         // 推开附近刚体
         Collider2D[] hits = Physics2D.OverlapCircleAll(transform.position, explosionRadius, Physics2D.AllLayers);
+        Debug.Log($"[ConductiveObject] 爆炸！位置={transform.position}，半径={explosionRadius}，检测到 {hits.Length} 个碰撞体，force={force}");
         foreach (var hit in hits)
         {
             Rigidbody2D otherRb = hit.attachedRigidbody;
+            Debug.Log($"  - {hit.name}，attachedRb={(otherRb != null ? otherRb.name : "null")}，距离={Vector2.Distance(hit.transform.position, transform.position):F2}");
             if (otherRb != null && otherRb != rb)
             {
                 Apply2DExplosionForce(otherRb, transform.position, explosionRadius, force);
@@ -69,18 +71,30 @@ public class ConductiveObject : MonoBehaviour, IConductive
 
     void SpawnShards(int chainDepth, float intensity)
     {
+        // 获取罐子碰撞体半径，确保碎片从碰撞体外部生成
+        Collider2D canCol = GetComponent<Collider2D>();
+        float spawnRadius = 0.5f; // 默认值
+        if (canCol != null)
+        {
+            spawnRadius = Mathf.Max(canCol.bounds.extents.x, canCol.bounds.extents.y) + 0.15f;
+        }
+
+        Sprite shardSprite = GetShardSprite();
         CircleCollider2D[] shardColliders = new CircleCollider2D[shardCount];
+
+        Debug.Log($"[ConductiveObject] 生成 {shardCount} 个碎片，spawnRadius={spawnRadius:F2}，位置={transform.position}");
 
         for (int i = 0; i < shardCount; i++)
         {
             GameObject shard = new GameObject("Shard_" + i);
-            float angle = (360f / shardCount) * i + Random.Range(-20f, 20f);
+            float angle = (360f / shardCount) * i + Random.Range(-40f, 40f);
             Vector2 dir = new Vector2(Mathf.Cos(angle * Mathf.Deg2Rad), Mathf.Sin(angle * Mathf.Deg2Rad));
-            shard.transform.position = transform.position + (Vector3)(dir * 0.3f);
+            // 从碰撞体外部生成，避免卡在罐子内部被弹飞
+            shard.transform.position = transform.position + (Vector3)(dir * spawnRadius);
             shard.transform.localScale = Vector3.one * shardSize;
 
             SpriteRenderer sr = shard.AddComponent<SpriteRenderer>();
-            sr.sprite = CreateShardSprite();
+            sr.sprite = shardSprite;
             sr.color = dischargeColor;
             sr.sortingOrder = 5;
 
@@ -88,11 +102,29 @@ public class ConductiveObject : MonoBehaviour, IConductive
             shardRb.mass = 0.1f;
             shardRb.gravityScale = 1f;
             shardRb.freezeRotation = false;
-            shardRb.velocity = dir * shardSpeed * (1f + chainDepth * overloadMultiplierPerChain);
+            float speedMul = Random.Range(0.7f, 1.3f);
+            shardRb.velocity = dir * shardSpeed * speedMul * (1f + chainDepth * overloadMultiplierPerChain);
 
             CircleCollider2D shardCol = shard.AddComponent<CircleCollider2D>();
-            shardCol.radius = 0.3f;
+            shardCol.radius = 0.5f;
             shardColliders[i] = shardCol;
+
+            // 忽略与罐子自身的碰撞
+            if (canCol != null)
+            {
+                Physics2D.IgnoreCollision(shardCol, canCol);
+            }
+
+            // 忽略与玩家的碰撞
+            PlayerController player = Object.FindObjectOfType<PlayerController>();
+            if (player != null)
+            {
+                Collider2D playerCol = player.GetComponent<Collider2D>();
+                if (playerCol != null)
+                {
+                    Physics2D.IgnoreCollision(shardCol, playerCol);
+                }
+            }
 
             ConductiveShard cs = shard.AddComponent<ConductiveShard>();
             cs.chainDepth = chainDepth + 1;
@@ -119,28 +151,52 @@ public class ConductiveObject : MonoBehaviour, IConductive
         if (dist > radius || dist < 0.01f) return;
 
         float falloff = 1f - (dist / radius);
-        Vector2 force = dir.normalized * maxForce * falloff;
+        // 玩家质量大，额外加力使其能被明显炸飞
+        float massBoost = 1f;
+        if (targetRb.mass >= 1f)
+            massBoost = targetRb.mass * 2.5f;
+        Vector2 force = dir.normalized * maxForce * falloff * massBoost;
         targetRb.AddForce(force, ForceMode2D.Impulse);
+        Debug.Log($"  -> 推力施加！目标={targetRb.name}，力={force}，massBoost={massBoost}，falloff={falloff}");
+
+        // 对玩家额外锁定控制一段时间，防止跳跃逻辑覆盖爆炸推力
+        PlayerController player = targetRb.GetComponent<PlayerController>();
+        if (player != null)
+        {
+            player.SetExternalForceLock(0.6f);
+            Debug.Log($"  -> 已锁定玩家控制 0.6s");
+        }
     }
 
-    static Sprite CreateShardSprite()
+    static Sprite _shardSprite;
+
+    static Sprite GetShardSprite()
     {
+        if (_shardSprite != null) return _shardSprite;
+
         int size = 32;
-        Texture2D tex = new Texture2D(size, size);
+        // 使用 RGBA32 格式，关闭 mipmap，Point 过滤——确保运行时纹理能正确渲染
+        Texture2D tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+        tex.filterMode = FilterMode.Point;
+        tex.wrapMode = TextureWrapMode.Clamp;
+
         Color[] pixels = new Color[size * size];
         Vector2 center = new Vector2(size * 0.5f, size * 0.5f);
+        float radius = size * 0.45f;
 
         for (int y = 0; y < size; y++)
         {
             for (int x = 0; x < size; x++)
             {
                 float dist = Vector2.Distance(center, new Vector2(x, y));
-                pixels[y * size + x] = dist <= size * 0.4f ? Color.white : Color.clear;
+                pixels[y * size + x] = dist <= radius ? Color.white : Color.clear;
             }
         }
         tex.SetPixels(pixels);
         tex.Apply();
-        return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), (float)size);
+
+        _shardSprite = Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), (float)size);
+        return _shardSprite;
     }
 
     void OnDrawGizmosSelected()

@@ -1,23 +1,22 @@
 using UnityEngine;
 using System.Collections;
 
-[RequireComponent(typeof(Collider2D))]
 public class WaterPuddle : MonoBehaviour
 {
     [Tooltip("水潭导电时显示的圆环颜色")]
     public Color conductColor = Color.cyan;
 
     /// <summary>
-    /// 玩家踩到水潭时，整个水潭变成导电源，引爆水潭范围内的所有导电体
+    /// 玩家放电时，若在水潭附近，整个水潭变成导电源，引爆水潭范围内的所有导电体。
+    /// 水潭无碰撞体，仅扩散导电范围（范围 = 水潭自身大小）。
     /// </summary>
     public void OnPlayerEnter(Vector2 playerPos, float intensity)
     {
         Vector2 puddleCenter = transform.position;
-        // 用水潭碰撞体的边界作为导电范围
-        Collider2D puddleCol = GetComponent<Collider2D>();
-        float conductRadius = Mathf.Max(puddleCol.bounds.size.x, puddleCol.bounds.size.y) * 0.5f;
+        // 用水潭的 scale 作为导电范围（取 x、y 较大值）
+        float conductRadius = Mathf.Max(transform.localScale.x, transform.localScale.y) * 0.5f;
 
-        // 水潭导电圆环效果
+        // 水潭导电圆环效果——范围就是水潭大小
         StartCoroutine(SpawnConductRing(puddleCenter, conductRadius));
 
         // 引爆水潭范围内的所有导电体
@@ -61,10 +60,15 @@ public class WaterPuddle : MonoBehaviour
         Destroy(ring);
     }
 
+    static Sprite _ringSprite;
+
     static Sprite CreateRingSprite()
     {
+        if (_ringSprite != null) return _ringSprite;
+
         int size = 64;
-        Texture2D tex = new Texture2D(size, size);
+        Texture2D tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+        tex.filterMode = FilterMode.Point;
         Color[] pixels = new Color[size * size];
         Vector2 center = new Vector2(size * 0.5f, size * 0.5f);
         float outerRadius = size * 0.5f - 1f;
@@ -80,17 +84,15 @@ public class WaterPuddle : MonoBehaviour
         }
         tex.SetPixels(pixels);
         tex.Apply();
-        return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), (float)size);
+
+        _ringSprite = Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), (float)size);
+        return _ringSprite;
     }
 
     void OnDrawGizmosSelected()
     {
         Gizmos.color = Color.cyan;
-        Collider2D col = GetComponent<Collider2D>();
-        if (col != null)
-        {
-            float r = Mathf.Max(col.bounds.size.x, col.bounds.size.y) * 0.5f;
-            Gizmos.DrawWireSphere(transform.position, r);
-        }
+        float r = Mathf.Max(transform.localScale.x, transform.localScale.y) * 0.5f;
+        Gizmos.DrawWireSphere(transform.position, r);
     }
 }

@@ -43,13 +43,11 @@ public class PrototypeSetup
             can.AddComponent<ConductiveObject>();
         }
 
-        // 积水滩（触发器）
+        // 积水滩（无碰撞体，玩家和碎片可直接穿过）
         GameObject puddle = new GameObject("WaterPuddle");
         puddle.transform.position = new Vector3(18f, 0.05f, 0f);
         puddle.transform.localScale = new Vector3(5f, 1f, 1f);
         AddSprite(puddle, whiteSprite, new Color(0f, 0.6f, 1f, 0.5f));
-        BoxCollider2D pcol = puddle.AddComponent<BoxCollider2D>();
-        pcol.isTrigger = true;
         puddle.AddComponent<WaterPuddle>();
 
         // 绝缘块墙

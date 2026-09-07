@@ -30,6 +30,15 @@ public class PlayerController : MonoBehaviour
     float lastJumpTime = -999f;
     float lastDischargeTime = -999f;
     bool wasAirborne;
+    float externalForceLockUntil = -999f; // 被爆炸推力期间锁定控制
+
+    /// <summary>
+    /// 外部调用：锁定玩家控制一段时间（如被爆炸炸飞）
+    /// </summary>
+    public void SetExternalForceLock(float duration)
+    {
+        externalForceLockUntil = Time.time + duration;
+    }
 
     void Awake()
     {
@@ -48,6 +57,14 @@ public class PlayerController : MonoBehaviour
     {
         bool grounded = CheckGrounded();
 
+        // 爆炸推力期间，不干预速度
+        if (Time.time < externalForceLockUntil)
+        {
+            if (!grounded) wasAirborne = true;
+            else wasAirborne = false;
+            return;
+        }
+
         // 落地瞬间放电：从空中→地面的那一刻
         if (grounded && wasAirborne)
         {
@@ -56,6 +73,8 @@ public class PlayerController : MonoBehaviour
                 Vector2 point = GetGroundContactPoint();
                 PerformDischarge(point);
                 lastDischargeTime = Time.time;
+                // 放电可能触发了爆炸，如果被锁定则本帧不再干预速度
+                if (Time.time < externalForceLockUntil) return;
             }
             wasAirborne = false;
         }
@@ -75,10 +94,9 @@ public class PlayerController : MonoBehaviour
             lastJumpTime = Time.time;
         }
 
-        // 左右控制：检测前方是否有墙，有墙时不施加水平速度
+        // 左右控制：按方向键移动，松手停止
         float h = Input.GetAxis("Horizontal");
         Vector2 velocity = rb.velocity;
-
         if (Mathf.Abs(h) > 0.01f && !IsWallInDirection(h))
         {
             velocity.x = h * maxHorizontalSpeed;
@@ -128,11 +146,18 @@ public class PlayerController : MonoBehaviour
         bool hit = false;
         foreach (var origin in origins)
         {
-            if (Physics2D.Raycast(origin, Vector2.down, rayLength))
+            // 用 RaycastAll 穿透水潭等非地面物体，找到真正的地面
+            RaycastHit2D[] results = Physics2D.RaycastAll(origin, Vector2.down, rayLength);
+            foreach (var r in results)
             {
+                if (r.collider.GetComponentInParent<WaterPuddle>() != null) continue;
+                if (r.collider.GetComponentInParent<ConductiveShard>() != null) continue;
+                // 只认法线朝上的才是地面，避免侧壁误判
+                if (r.normal.y < 0.5f) continue;
                 hit = true;
                 break;
             }
+            if (hit) break;
         }
         gameObject.layer = originalLayer;
         return hit;
@@ -155,17 +180,21 @@ public class PlayerController : MonoBehaviour
         int originalLayer = gameObject.layer;
         gameObject.layer = 2;
 
-        // 优先返回第一个打中的点
+        // 优先返回第一个打中的点（穿透水潭）
         Vector2 result = new Vector2(transform.position.x, bottomY);
         foreach (var origin in origins)
         {
-            RaycastHit2D hit = Physics2D.Raycast(origin, Vector2.down, 0.2f);
-            if (hit.collider != null)
+            RaycastHit2D[] hits = Physics2D.RaycastAll(origin, Vector2.down, 0.2f);
+            foreach (var h in hits)
             {
-                result = hit.point;
-                break;
+                if (h.collider.GetComponentInParent<WaterPuddle>() != null) continue;
+                if (h.collider.GetComponentInParent<ConductiveShard>() != null) continue;
+                if (h.normal.y < 0.5f) continue;
+                result = h.point;
+                goto Found;
             }
         }
+        Found:
 
         gameObject.layer = originalLayer;
         return result;
@@ -190,14 +219,16 @@ public class PlayerController : MonoBehaviour
             }
         }
 
-        // 检测玩家是否站在水滩上，水潭整个变成导电源
-        Collider2D[] puddleHits = Physics2D.OverlapCircleAll(playerCenter, dischargeRadius, Physics2D.AllLayers);
-        foreach (var h in puddleHits)
+        // 检测玩家是否在水潭附近：水潭无碰撞体，用距离检测
+        WaterPuddle[] puddles = Object.FindObjectsOfType<WaterPuddle>();
+        foreach (var puddle in puddles)
         {
-            WaterPuddle puddle = h.GetComponentInParent<WaterPuddle>();
-            if (puddle != null)
+            Vector2 puddleCenter = puddle.transform.position;
+            float puddleRadius = Mathf.Max(puddle.transform.localScale.x, puddle.transform.localScale.y) * 0.5f;
+            float distToPuddle = Vector2.Distance(playerCenter, puddleCenter);
+            // 玩家在水潭范围内或放电半径内即触发水潭导电
+            if (distToPuddle <= puddleRadius + dischargeRadius)
             {
-                // 通过水潭导电：以水潭边界引爆范围内的导电体
                 puddle.OnPlayerEnter(playerCenter, intensity);
             }
         }
