@@ -113,12 +113,27 @@ public class PlayerController : MonoBehaviour
         if (col == null) return false;
 
         float bottomY = col.bounds.min.y;
-        Vector2 origin = new Vector2(transform.position.x, bottomY - 0.01f);
         float rayLength = 0.15f;
+
+        // 左下角、中心、右下角三个点
+        Vector2[] origins = new Vector2[]
+        {
+            new Vector2(col.bounds.min.x, bottomY - 0.01f),
+            new Vector2(transform.position.x, bottomY - 0.01f),
+            new Vector2(col.bounds.max.x, bottomY - 0.01f)
+        };
 
         int originalLayer = gameObject.layer;
         gameObject.layer = 2; // IgnoreRaycast
-        bool hit = Physics2D.Raycast(origin, Vector2.down, rayLength);
+        bool hit = false;
+        foreach (var origin in origins)
+        {
+            if (Physics2D.Raycast(origin, Vector2.down, rayLength))
+            {
+                hit = true;
+                break;
+            }
+        }
         gameObject.layer = originalLayer;
         return hit;
     }
@@ -128,14 +143,32 @@ public class PlayerController : MonoBehaviour
         if (col == null) return transform.position;
 
         float bottomY = col.bounds.min.y;
-        Vector2 origin = new Vector2(transform.position.x, bottomY - 0.01f);
+
+        // 左下角、中心、右下角三个点
+        Vector2[] origins = new Vector2[]
+        {
+            new Vector2(col.bounds.min.x, bottomY - 0.01f),
+            new Vector2(transform.position.x, bottomY - 0.01f),
+            new Vector2(col.bounds.max.x, bottomY - 0.01f)
+        };
 
         int originalLayer = gameObject.layer;
         gameObject.layer = 2;
-        RaycastHit2D hit = Physics2D.Raycast(origin, Vector2.down, 0.2f);
-        gameObject.layer = originalLayer;
 
-        return hit.collider != null ? hit.point : new Vector2(transform.position.x, bottomY);
+        // 优先返回第一个打中的点
+        Vector2 result = new Vector2(transform.position.x, bottomY);
+        foreach (var origin in origins)
+        {
+            RaycastHit2D hit = Physics2D.Raycast(origin, Vector2.down, 0.2f);
+            if (hit.collider != null)
+            {
+                result = hit.point;
+                break;
+            }
+        }
+
+        gameObject.layer = originalLayer;
+        return result;
     }
 
     void PerformDischarge(Vector2 point)
