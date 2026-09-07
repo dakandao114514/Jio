@@ -185,25 +185,27 @@ public class PlayerController : MonoBehaviour
         float actualRadius = dischargeRadius;
         float intensity = 1f;
 
+        Vector2 playerCenter = transform.position;
+
         if (puddle != null)
         {
             // 在水滩上放电：水潭直接引爆范围内的导电体
-            puddle.OnPlayerEnter(point, dischargeRadius, intensity);
+            puddle.OnPlayerEnter(playerCenter, dischargeRadius, intensity);
             actualRadius = puddle.GetAmplifiedRadius(dischargeRadius);
         }
         else
         {
-            // 正常放电：扩散圆环效果
-            StartCoroutine(SpawnDischargeRing(point, dischargeRadius));
+            // 正常放电：从玩家中心扩散圆环
+            StartCoroutine(SpawnDischargeRing(playerCenter, dischargeRadius));
 
             // 与可放电物体交互
-            Collider2D[] hits = Physics2D.OverlapCircleAll(point, dischargeRadius, Physics2D.AllLayers);
+            Collider2D[] hits = Physics2D.OverlapCircleAll(playerCenter, dischargeRadius, Physics2D.AllLayers);
             foreach (var hit in hits)
             {
                 IConductive target = hit.GetComponentInParent<IConductive>();
                 if (target != null)
                 {
-                    target.OnDischarge(point, intensity, 0);
+                    target.OnDischarge(playerCenter, intensity, 0);
                 }
             }
         }
