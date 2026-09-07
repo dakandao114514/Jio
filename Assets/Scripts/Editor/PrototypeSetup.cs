@@ -96,6 +96,73 @@ public class PrototypeSetup
         EditorUtility.DisplayDialog("电极弹射", "2D 核心原型场景搭建完成！\n\n按 Ctrl+P 运行，用 A/D 或 ←/→ 控制左右落点。", "确定");
     }
 
+    [MenuItem("电极弹射/搭建布置阶段场景")]
+    static void BuildPlacementScene()
+    {
+        EnsureLayer("Ground");
+
+        Sprite whiteSprite = GetOrCreateWhiteSprite();
+
+        // 地面
+        GameObject ground = new GameObject("Ground");
+        ground.transform.localScale = new Vector3(60f, 1f, 1f);
+        ground.transform.position = new Vector3(20f, -0.5f, 0f);
+        ground.layer = LayerMask.NameToLayer("Ground");
+        AddSprite(ground, whiteSprite, Color.gray);
+        Rigidbody2D groundRb = ground.AddComponent<Rigidbody2D>();
+        groundRb.bodyType = RigidbodyType2D.Static;
+        ground.AddComponent<BoxCollider2D>();
+
+        // 玩家
+        GameObject player = new GameObject("Player");
+        player.transform.position = new Vector3(0f, 1f, 0f);
+        AddSprite(player, whiteSprite, new Color(0.2f, 0.6f, 1f));
+        Rigidbody2D prb = player.AddComponent<Rigidbody2D>();
+        prb.mass = 1f;
+        player.AddComponent<BoxCollider2D>();
+        player.AddComponent<PlayerController>();
+
+        // 终点框（可视化）
+        GameObject finish = new GameObject("FinishArea");
+        finish.transform.position = new Vector3(45f, 1f, 0f);
+        finish.transform.localScale = new Vector3(3f, 3f, 1f);
+        AddSprite(finish, whiteSprite, new Color(1f, 0.8f, 0f, 0.4f));
+
+        // 摄像机
+        Camera mainCam = Camera.main;
+        if (mainCam == null)
+        {
+            GameObject camObj = new GameObject("Main Camera");
+            camObj.tag = "MainCamera";
+            mainCam = camObj.AddComponent<Camera>();
+        }
+        mainCam.orthographic = true;
+        mainCam.orthographicSize = 8f;
+        mainCam.transform.position = new Vector3(0f, 3f, -10f);
+
+        CameraFollow cf = mainCam.gameObject.GetComponent<CameraFollow>();
+        if (cf == null) cf = mainCam.gameObject.AddComponent<CameraFollow>();
+        cf.target = player.transform;
+        cf.offset = new Vector3(0f, 3f, -10f);
+
+        // 灯光
+        if (Object.FindObjectOfType<Light>() == null)
+        {
+            GameObject light = new GameObject("Directional Light");
+            Light l = light.AddComponent<Light>();
+            l.type = LightType.Directional;
+            light.transform.rotation = Quaternion.Euler(50f, -30f, 0f);
+        }
+
+        // 阶段系统
+        GameObject phaseSystem = new GameObject("PhaseSystem");
+        phaseSystem.AddComponent<GamePhaseManager>();
+        phaseSystem.AddComponent<PlacementController>();
+
+        Selection.activeGameObject = phaseSystem;
+        EditorUtility.DisplayDialog("电极弹射", "布置阶段场景搭建完成！\n\n按 Ctrl+P 运行：\n左键放置道具 / 右键删除\n1=易拉罐 2=积水滩 3=绝缘块\n点击「开始游戏」进入游玩", "确定");
+    }
+
     static void AddSprite(GameObject go, Sprite sprite, Color color)
     {
         SpriteRenderer sr = go.AddComponent<SpriteRenderer>();
