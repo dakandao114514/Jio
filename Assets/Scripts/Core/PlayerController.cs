@@ -75,11 +75,36 @@ public class PlayerController : MonoBehaviour
             lastJumpTime = Time.time;
         }
 
-        // 空中左右控制
+        // 左右控制：检测前方是否有墙，有墙时不施加水平速度
         float h = Input.GetAxis("Horizontal");
         Vector2 velocity = rb.velocity;
-        velocity.x = h * maxHorizontalSpeed;
+
+        if (Mathf.Abs(h) > 0.01f && !IsWallInDirection(h))
+        {
+            velocity.x = h * maxHorizontalSpeed;
+        }
+        else
+        {
+            velocity.x = 0f;
+        }
         rb.velocity = velocity;
+    }
+
+    bool IsWallInDirection(float dir)
+    {
+        if (col == null) return false;
+
+        float checkDist = 0.15f;
+        Vector2 origin = transform.position;
+        Vector2 direction = new Vector2(Mathf.Sign(dir), 0f);
+
+        int originalLayer = gameObject.layer;
+        gameObject.layer = 2; // IgnoreRaycast
+        RaycastHit2D hit = Physics2D.Raycast(origin, direction, checkDist);
+        gameObject.layer = originalLayer;
+
+        // 只检测侧面的墙，不检测地面（normal.y ≈ 0 表示侧面碰撞）
+        return hit.collider != null && Mathf.Abs(hit.normal.x) > 0.5f;
     }
 
     bool CheckGrounded()
