@@ -1,4 +1,5 @@
 using UnityEngine;
+using System.Collections;
 
 [RequireComponent(typeof(Rigidbody2D))]
 public class PlayerController : MonoBehaviour
@@ -15,16 +16,18 @@ public class PlayerController : MonoBehaviour
 
     [Header("落地漏电")]
     [Tooltip("漏电影响半径")]
-    public float dischargeRadius = 1.2f;
+    public float dischargeRadius = 3f;
     [Tooltip("漏电时给自身的额外上推力")]
     public float selfBounceForce = 2f;
-    [Tooltip("地面层遮罩，留空则自动使用 Ground")]
-    public LayerMask groundLayers;
+    [Tooltip("两次放电之间的最小间隔（秒）")]
+    public float dischargeCooldown = 0.15f;
+    [Tooltip("扩散圆环持续时间（秒）")]
+    public float ringDuration = 0.35f;
     public Color dischargeColor = Color.yellow;
 
     Rigidbody2D rb;
     float lastJumpTime = -999f;
-    bool wasAirborne;
+    float lastDischargeTime = -999f;
 
     void Awake()
     {
@@ -32,27 +35,11 @@ public class PlayerController : MonoBehaviour
         rb.freezeRotation = true;
         rb.interpolation = RigidbodyInterpolation2D.Interpolate;
         rb.gravityScale = 1.5f;
-
-        if (groundLayers == 0)
-            groundLayers = LayerMask.GetMask("Ground");
     }
 
     void FixedUpdate()
     {
         bool grounded = CheckGrounded();
-
-        // 落地瞬间漏电
-        if (grounded && wasAirborne)
-        {
-            Vector2 point = transform.position;
-            if (Physics2D.Raycast(transform.position, Vector2.down, 1f, groundLayers))
-            {
-                point = Physics2D.Raycast(transform.position, Vector2.down, 1f, groundLayers).point;
-            }
-
-            PerformDischarge(point);
-            wasAirborne = false;
-        }
 
         // 自动小跳
         if (grounded && Time.time - lastJumpTime > hopCooldown)
@@ -60,9 +47,7 @@ public class PlayerController : MonoBehaviour
             Vector2 vel = rb.velocity;
             vel.y = jumpVelocity;
             rb.velocity = vel;
-
             lastJumpTime = Time.time;
-            wasAirborne = true;
         }
 
         // 空中左右控制
@@ -72,30 +57,41 @@ public class PlayerController : MonoBehaviour
         rb.velocity = velocity;
     }
 
+    /// <summary>
+    /// 底部碰到任何物体时触发漏电
+    /// </summary>
+    void OnCollisionEnter2D(Collision2D col)
+    {
+        if (Time.time - lastDischargeTime < dischargeCooldown) return;
+
+        foreach (ContactPoint2D contact in col.contacts)
+        {
+            // normal.y > 0.5 表示碰撞来自下方（玩家落在物体上方）
+            if (contact.normal.y > 0.5f)
+            {
+                PerformDischarge(contact.point);
+                lastDischargeTime = Time.time;
+                break;
+            }
+        }
+    }
+
     bool CheckGrounded()
     {
-        float rayLength = 0.55f;
-        return Physics2D.Raycast(transform.position, Vector2.down, rayLength, groundLayers);
+        // 检测任何固体表面，不限于 Ground 层
+        float rayLength = 0.6f;
+        return Physics2D.Raycast(transform.position, Vector2.down, rayLength, Physics2D.AllLayers);
     }
 
     void PerformDischarge(Vector2 point)
     {
-        // 视觉反馈：落点放电光圈
-        GameObject fx = new GameObject("LandingDischargeFX");
-        fx.transform.position = point;
-        fx.transform.localScale = Vector3.one * dischargeRadius * 0.5f;
-
-        SpriteRenderer sr = fx.AddComponent<SpriteRenderer>();
-        sr.sprite = CreateCircleSprite();
-        sr.color = dischargeColor;
-        sr.sortingOrder = 10;
-
-        Destroy(fx, 0.12f);
+        // 扩散圆环效果
+        StartCoroutine(SpawnDischargeRing(point, dischargeRadius));
 
         // 给玩家一点反冲上推
         rb.AddForce(Vector2.up * selfBounceForce, ForceMode2D.Impulse);
 
-        // 与可放电物体交互（包括触发器）
+        // 与可放电物体交互
         Collider2D[] hits = Physics2D.OverlapCircleAll(point, dischargeRadius, Physics2D.AllLayers);
         foreach (var hit in hits)
         {
@@ -107,23 +103,55 @@ public class PlayerController : MonoBehaviour
         }
     }
 
-    static Sprite CreateCircleSprite()
+    IEnumerator SpawnDischargeRing(Vector2 center, float maxRadius)
     {
-        Texture2D tex = new Texture2D(64, 64);
-        Color clear = new Color(1f, 1f, 1f, 1f);
-        Color[] pixels = new Color[64 * 64];
-        Vector2 center = new Vector2(32, 32);
-        for (int y = 0; y < 64; y++)
+        GameObject ring = new GameObject("DischargeRing");
+        ring.transform.position = center;
+
+        SpriteRenderer sr = ring.AddComponent<SpriteRenderer>();
+        sr.sprite = CreateRingSprite();
+        sr.color = dischargeColor;
+        sr.sortingOrder = 10;
+
+        float elapsed = 0f;
+        while (elapsed < ringDuration)
         {
-            for (int x = 0; x < 64; x++)
+            float t = elapsed / ringDuration;
+            // 从 0 扩展到 maxRadius（sprite 外缘 = scale * 0.5，所以 scale = radius * 2）
+            float radius = Mathf.Lerp(0.1f, maxRadius, t);
+            ring.transform.localScale = Vector3.one * (radius * 2f);
+
+            Color c = dischargeColor;
+            c.a = Mathf.Lerp(1f, 0f, t);
+            sr.color = c;
+
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+
+        Destroy(ring);
+    }
+
+    static Sprite CreateRingSprite()
+    {
+        int size = 64;
+        Texture2D tex = new Texture2D(size, size);
+        Color[] pixels = new Color[size * size];
+        Vector2 center = new Vector2(size * 0.5f, size * 0.5f);
+        float outerRadius = size * 0.5f - 1f;
+        float innerRadius = outerRadius - 6f;
+
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
             {
                 float dist = Vector2.Distance(center, new Vector2(x, y));
-                pixels[y * 64 + x] = dist <= 30f ? clear : Color.clear;
+                pixels[y * size + x] = (dist <= outerRadius && dist >= innerRadius) ? Color.white : Color.clear;
             }
         }
         tex.SetPixels(pixels);
         tex.Apply();
-        return Sprite.Create(tex, new Rect(0, 0, 64, 64), new Vector2(0.5f, 0.5f), 64f);
+        return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), (float)size);
     }
 
     void OnDrawGizmosSelected()
@@ -132,6 +160,6 @@ public class PlayerController : MonoBehaviour
         Gizmos.DrawWireSphere(transform.position, dischargeRadius);
 
         Gizmos.color = Color.green;
-        Gizmos.DrawLine(transform.position, transform.position + Vector3.down * 0.55f);
+        Gizmos.DrawLine(transform.position, transform.position + Vector3.down * 0.6f);
     }
 }

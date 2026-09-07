@@ -1,4 +1,5 @@
 using UnityEngine;
+using System.Collections;
 
 [RequireComponent(typeof(Rigidbody2D))]
 public class ConductiveObject : MonoBehaviour, IConductive
@@ -7,9 +8,9 @@ public class ConductiveObject : MonoBehaviour, IConductive
     [Tooltip("基础爆炸推力")]
     public float baseExplosionForce = 12f;
     [Tooltip("爆炸影响半径")]
-    public float explosionRadius = 2f;
+    public float explosionRadius = 4f;
     [Tooltip("向其他导电体传播电弧的半径")]
-    public float propagationRadius = 4f;
+    public float propagationRadius = 6f;
 
     [Header("连锁与过载")]
     [Tooltip("最大连锁层数，防止无限递归")]
@@ -18,6 +19,8 @@ public class ConductiveObject : MonoBehaviour, IConductive
     public float overloadMultiplierPerChain = 0.5f;
 
     [Header("表现")]
+    [Tooltip("扩散圆环持续时间（秒）")]
+    public float ringDuration = 0.35f;
     public Color dischargeColor = Color.yellow;
 
     Rigidbody2D rb;
@@ -51,7 +54,8 @@ public class ConductiveObject : MonoBehaviour, IConductive
             }
         }
 
-        SpawnEffect(transform.position, overload);
+        // 扩散圆环效果，以物体中心为起点
+        StartCoroutine(SpawnExplosionRing(transform.position, explosionRadius * overload, overload));
 
         // 向附近导电体继续传播
         Collider2D[] propagate = Physics2D.OverlapCircleAll(transform.position, propagationRadius, Physics2D.AllLayers);
@@ -80,36 +84,55 @@ public class ConductiveObject : MonoBehaviour, IConductive
         targetRb.AddForce(force, ForceMode2D.Impulse);
     }
 
-    void SpawnEffect(Vector3 position, float scaleMult)
+    IEnumerator SpawnExplosionRing(Vector3 center, float maxRadius, float overload)
     {
-        GameObject fx = new GameObject("DischargeFX");
-        fx.transform.position = position;
-        fx.transform.localScale = Vector3.one * 0.4f * scaleMult;
+        GameObject ring = new GameObject("ExplosionRing");
+        ring.transform.position = center;
 
-        SpriteRenderer sr = fx.AddComponent<SpriteRenderer>();
-        sr.sprite = CreateCircleSprite();
-        sr.color = dischargeColor;
+        SpriteRenderer sr = ring.AddComponent<SpriteRenderer>();
+        sr.sprite = CreateRingSprite();
+        // 连锁越深颜色越偏红
+        sr.color = Color.Lerp(dischargeColor, Color.red, Mathf.Clamp01((overload - 1f) * 0.3f));
         sr.sortingOrder = 10;
 
-        Destroy(fx, 0.15f);
+        float elapsed = 0f;
+        while (elapsed < ringDuration)
+        {
+            float t = elapsed / ringDuration;
+            float radius = Mathf.Lerp(0.1f, maxRadius, t);
+            ring.transform.localScale = Vector3.one * (radius * 2f);
+
+            Color c = sr.color;
+            c.a = Mathf.Lerp(1f, 0f, t);
+            sr.color = c;
+
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+
+        Destroy(ring);
     }
 
-    static Sprite CreateCircleSprite()
+    static Sprite CreateRingSprite()
     {
-        Texture2D tex = new Texture2D(64, 64);
-        Color[] pixels = new Color[64 * 64];
-        Vector2 center = new Vector2(32, 32);
-        for (int y = 0; y < 64; y++)
+        int size = 64;
+        Texture2D tex = new Texture2D(size, size);
+        Color[] pixels = new Color[size * size];
+        Vector2 center = new Vector2(size * 0.5f, size * 0.5f);
+        float outerRadius = size * 0.5f - 1f;
+        float innerRadius = outerRadius - 6f;
+
+        for (int y = 0; y < size; y++)
         {
-            for (int x = 0; x < 64; x++)
+            for (int x = 0; x < size; x++)
             {
                 float dist = Vector2.Distance(center, new Vector2(x, y));
-                pixels[y * 64 + x] = dist <= 30f ? Color.white : Color.clear;
+                pixels[y * size + x] = (dist <= outerRadius && dist >= innerRadius) ? Color.white : Color.clear;
             }
         }
         tex.SetPixels(pixels);
         tex.Apply();
-        return Sprite.Create(tex, new Rect(0, 0, 64, 64), new Vector2(0.5f, 0.5f), 64f);
+        return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), (float)size);
     }
 
     void OnDrawGizmosSelected()
