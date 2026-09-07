@@ -1,65 +1,98 @@
 using UnityEngine;
+using System.Collections;
 
 [RequireComponent(typeof(Collider2D))]
-public class WaterPuddle : MonoBehaviour, IConductive
+public class WaterPuddle : MonoBehaviour
 {
-    [Tooltip("积水滩被漏电击中后，向多大范围传播电弧")]
-    public float amplifyRadius = 7f;
-    [Tooltip("传播时电弧强度倍率")]
-    public float intensityMultiplier = 1.5f;
+    [Tooltip("玩家踩入水滩后，放电范围放大倍率")]
+    public float dischargeAmplify = 2.5f;
+    [Tooltip("放大后的放电颜色")]
+    public Color amplifiedColor = Color.cyan;
 
-    public Color dischargeColor = Color.cyan;
-
-    public void OnDischarge(Vector3 origin, float intensity, int chainDepth)
+    /// <summary>
+    /// 玩家踩入水滩时调用，返回放大后的放电半径
+    /// </summary>
+    public float GetAmplifiedRadius(float baseRadius)
     {
-        Collider2D[] hits = Physics2D.OverlapCircleAll(transform.position, amplifyRadius, Physics2D.AllLayers);
+        return baseRadius * dischargeAmplify;
+    }
+
+    /// <summary>
+    /// 玩家踩入水滩时触发放大效果，直接引爆范围内的所有导电体
+    /// </summary>
+    public void OnPlayerEnter(Vector2 playerPos, float baseRadius, float intensity)
+    {
+        float amplified = baseRadius * dischargeAmplify;
+
+        // 扩散圆环效果
+        StartCoroutine(SpawnAmplifyRing(playerPos, amplified));
+
+        // 范围内所有导电体直接爆炸
+        Collider2D[] hits = Physics2D.OverlapCircleAll(playerPos, amplified, Physics2D.AllLayers);
         foreach (var hit in hits)
         {
             IConductive target = hit.GetComponentInParent<IConductive>();
-            if (target != null && !ReferenceEquals(target, this))
+            if (target != null)
             {
-                target.OnDischarge(transform.position, intensity * intensityMultiplier, chainDepth + 1);
+                target.OnDischarge(playerPos, intensity * dischargeAmplify, 0);
             }
         }
-
-        SpawnEffect();
     }
 
-    void SpawnEffect()
+    IEnumerator SpawnAmplifyRing(Vector2 center, float maxRadius)
     {
-        GameObject fx = new GameObject("PuddleDischargeFX");
-        fx.transform.position = transform.position;
-        fx.transform.localScale = Vector3.one * amplifyRadius * 0.5f;
+        GameObject ring = new GameObject("WaterAmplifyRing");
+        ring.transform.position = center;
 
-        SpriteRenderer sr = fx.AddComponent<SpriteRenderer>();
-        sr.sprite = CreateCircleSprite();
-        sr.color = dischargeColor;
+        SpriteRenderer sr = ring.AddComponent<SpriteRenderer>();
+        sr.sprite = CreateRingSprite();
+        sr.color = amplifiedColor;
         sr.sortingOrder = 9;
 
-        Destroy(fx, 0.2f);
+        float duration = 0.5f;
+        float elapsed = 0f;
+        while (elapsed < duration)
+        {
+            float t = elapsed / duration;
+            float radius = Mathf.Lerp(0.1f, maxRadius, t);
+            ring.transform.localScale = Vector3.one * (radius * 2f);
+
+            Color c = amplifiedColor;
+            c.a = Mathf.Lerp(1f, 0f, t);
+            sr.color = c;
+
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+
+        Destroy(ring);
     }
 
-    static Sprite CreateCircleSprite()
+    static Sprite CreateRingSprite()
     {
-        Texture2D tex = new Texture2D(64, 64);
-        Color[] pixels = new Color[64 * 64];
-        Vector2 center = new Vector2(32, 32);
-        for (int y = 0; y < 64; y++)
+        int size = 64;
+        Texture2D tex = new Texture2D(size, size);
+        Color[] pixels = new Color[size * size];
+        Vector2 center = new Vector2(size * 0.5f, size * 0.5f);
+        float outerRadius = size * 0.5f - 1f;
+        float innerRadius = outerRadius - 6f;
+
+        for (int y = 0; y < size; y++)
         {
-            for (int x = 0; x < 64; x++)
+            for (int x = 0; x < size; x++)
             {
                 float dist = Vector2.Distance(center, new Vector2(x, y));
-                pixels[y * 64 + x] = dist <= 30f ? Color.white : Color.clear;
+                pixels[y * size + x] = (dist <= outerRadius && dist >= innerRadius) ? Color.white : Color.clear;
             }
         }
         tex.SetPixels(pixels);
         tex.Apply();
-        return Sprite.Create(tex, new Rect(0, 0, 64, 64), new Vector2(0.5f, 0.5f), 64f);
+        return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), (float)size);
     }
 
     void OnDrawGizmosSelected()
     {
         Gizmos.color = Color.cyan;
-        Gizmos.DrawWireSphere(transform.position, amplifyRadius);
+        Gizmos.DrawWireSphere(transform.position, 3f * dischargeAmplify);
     }
 }

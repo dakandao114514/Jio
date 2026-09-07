@@ -27,10 +27,6 @@ public class ConductiveObject : MonoBehaviour, IConductive
     public float overloadMultiplierPerChain = 0.5f;
 
     [Header("表现")]
-    [Tooltip("扩散圆环持续时间（秒）")]
-    public float ringDuration = 0.35f;
-    [Tooltip("扩散圆环最大半径")]
-    public float ringRadius = 1.5f;
     public Color dischargeColor = Color.yellow;
 
     Rigidbody2D rb;
@@ -53,9 +49,6 @@ public class ConductiveObject : MonoBehaviour, IConductive
         float overload = 1f + chainDepth * overloadMultiplierPerChain;
         float force = baseExplosionForce * intensity * overload;
 
-        // 爆炸圆环效果
-        StartCoroutine(SpawnExplosionRing(transform.position, ringRadius * overload, overload));
-
         // 推开附近刚体
         Collider2D[] hits = Physics2D.OverlapCircleAll(transform.position, explosionRadius, Physics2D.AllLayers);
         foreach (var hit in hits)
@@ -67,7 +60,7 @@ public class ConductiveObject : MonoBehaviour, IConductive
             }
         }
 
-        // 裂成碎片飞出
+        // 裂成碎片飞出，碎片碰到其他罐子才连锁
         SpawnShards(chainDepth, intensity);
 
         // 销毁自身
@@ -128,56 +121,6 @@ public class ConductiveObject : MonoBehaviour, IConductive
         float falloff = 1f - (dist / radius);
         Vector2 force = dir.normalized * maxForce * falloff;
         targetRb.AddForce(force, ForceMode2D.Impulse);
-    }
-
-    IEnumerator SpawnExplosionRing(Vector3 center, float maxRadius, float overload)
-    {
-        GameObject ring = new GameObject("ExplosionRing");
-        ring.transform.position = center;
-
-        SpriteRenderer sr = ring.AddComponent<SpriteRenderer>();
-        sr.sprite = CreateRingSprite();
-        sr.color = Color.Lerp(dischargeColor, Color.red, Mathf.Clamp01((overload - 1f) * 0.3f));
-        sr.sortingOrder = 10;
-
-        float elapsed = 0f;
-        while (elapsed < ringDuration)
-        {
-            float t = elapsed / ringDuration;
-            float radius = Mathf.Lerp(0.1f, maxRadius, t);
-            ring.transform.localScale = Vector3.one * (radius * 2f);
-
-            Color c = sr.color;
-            c.a = Mathf.Lerp(1f, 0f, t);
-            sr.color = c;
-
-            elapsed += Time.deltaTime;
-            yield return null;
-        }
-
-        Destroy(ring);
-    }
-
-    static Sprite CreateRingSprite()
-    {
-        int size = 64;
-        Texture2D tex = new Texture2D(size, size);
-        Color[] pixels = new Color[size * size];
-        Vector2 center = new Vector2(size * 0.5f, size * 0.5f);
-        float outerRadius = size * 0.5f - 1f;
-        float innerRadius = outerRadius - 6f;
-
-        for (int y = 0; y < size; y++)
-        {
-            for (int x = 0; x < size; x++)
-            {
-                float dist = Vector2.Distance(center, new Vector2(x, y));
-                pixels[y * size + x] = (dist <= outerRadius && dist >= innerRadius) ? Color.white : Color.clear;
-            }
-        }
-        tex.SetPixels(pixels);
-        tex.Apply();
-        return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), (float)size);
     }
 
     static Sprite CreateShardSprite()
