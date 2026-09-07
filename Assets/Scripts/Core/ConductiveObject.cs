@@ -14,11 +14,11 @@ public class ConductiveObject : MonoBehaviour, IConductive
     [Tooltip("爆炸后裂成的碎片数量")]
     public int shardCount = 5;
     [Tooltip("碎片飞出的初速度")]
-    public float shardSpeed = 6f;
+    public float shardSpeed = 3f;
     [Tooltip("碎片存活时间（秒）")]
     public float shardLifetime = 2f;
     [Tooltip("碎片大小")]
-    public float shardSize = 0.25f;
+    public float shardSize = 0.35f;
 
     [Header("连锁与过载")]
     [Tooltip("最大连锁层数，防止无限递归")]
@@ -76,10 +76,14 @@ public class ConductiveObject : MonoBehaviour, IConductive
 
     void SpawnShards(int chainDepth, float intensity)
     {
+        CircleCollider2D[] shardColliders = new CircleCollider2D[shardCount];
+
         for (int i = 0; i < shardCount; i++)
         {
             GameObject shard = new GameObject("Shard_" + i);
-            shard.transform.position = transform.position + (Vector3)Random.insideUnitCircle * 0.2f;
+            float angle = (360f / shardCount) * i + Random.Range(-20f, 20f);
+            Vector2 dir = new Vector2(Mathf.Cos(angle * Mathf.Deg2Rad), Mathf.Sin(angle * Mathf.Deg2Rad));
+            shard.transform.position = transform.position + (Vector3)(dir * 0.3f);
             shard.transform.localScale = Vector3.one * shardSize;
 
             SpriteRenderer sr = shard.AddComponent<SpriteRenderer>();
@@ -91,20 +95,25 @@ public class ConductiveObject : MonoBehaviour, IConductive
             shardRb.mass = 0.1f;
             shardRb.gravityScale = 1f;
             shardRb.freezeRotation = false;
-
-            CircleCollider2D shardCol = shard.AddComponent<CircleCollider2D>();
-            shardCol.radius = 0.5f;
-
-            // 随机方向飞出
-            float angle = (360f / shardCount) * i + Random.Range(-30f, 30f);
-            Vector2 dir = new Vector2(Mathf.Cos(angle * Mathf.Deg2Rad), Mathf.Sin(angle * Mathf.Deg2Rad));
             shardRb.velocity = dir * shardSpeed * (1f + chainDepth * overloadMultiplierPerChain);
 
-            // 碎片携带连锁信息
+            CircleCollider2D shardCol = shard.AddComponent<CircleCollider2D>();
+            shardCol.radius = 0.3f;
+            shardColliders[i] = shardCol;
+
             ConductiveShard cs = shard.AddComponent<ConductiveShard>();
             cs.chainDepth = chainDepth + 1;
             cs.intensity = intensity;
             cs.lifetime = shardLifetime;
+        }
+
+        // 碎片互相忽略碰撞
+        for (int i = 0; i < shardCount; i++)
+        {
+            for (int j = i + 1; j < shardCount; j++)
+            {
+                Physics2D.IgnoreCollision(shardColliders[i], shardColliders[j]);
+            }
         }
     }
 

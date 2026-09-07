@@ -11,6 +11,8 @@ public class ConductiveShard : MonoBehaviour
     [HideInInspector] public float lifetime;
 
     float spawnTime;
+    // 生成后短暂不触发，避免刚出生就碰到东西
+    const float immunityDuration = 0.15f;
 
     void Start()
     {
@@ -27,6 +29,9 @@ public class ConductiveShard : MonoBehaviour
 
     void OnCollisionEnter2D(Collision2D col)
     {
+        // 刚生成后短暂免疫
+        if (Time.time - spawnTime < immunityDuration) return;
+
         IConductive target = col.collider.GetComponentInParent<IConductive>();
         if (target != null)
         {
