@@ -26,8 +26,10 @@ public class PlayerController : MonoBehaviour
     public Color dischargeColor = Color.yellow;
 
     Rigidbody2D rb;
+    Collider2D col;
     float lastJumpTime = -999f;
     float lastDischargeTime = -999f;
+    bool wasAirborne;
 
     void Awake()
     {
@@ -37,9 +39,32 @@ public class PlayerController : MonoBehaviour
         rb.gravityScale = 1.5f;
     }
 
+    void Start()
+    {
+        col = GetComponent<Collider2D>();
+    }
+
     void FixedUpdate()
     {
         bool grounded = CheckGrounded();
+
+        // 落地瞬间放电：从空中→地面的那一刻
+        if (grounded && wasAirborne)
+        {
+            if (Time.time - lastDischargeTime >= dischargeCooldown)
+            {
+                Vector2 point = GetGroundContactPoint();
+                PerformDischarge(point);
+                lastDischargeTime = Time.time;
+            }
+            wasAirborne = false;
+        }
+
+        // 离地标记
+        if (!grounded)
+        {
+            wasAirborne = true;
+        }
 
         // 自动小跳
         if (grounded && Time.time - lastJumpTime > hopCooldown)
@@ -57,45 +82,34 @@ public class PlayerController : MonoBehaviour
         rb.velocity = velocity;
     }
 
-    /// <summary>
-    /// 底部碰到任何物体时触发漏电
-    /// </summary>
-    void OnCollisionEnter2D(Collision2D col)
-    {
-        if (Time.time - lastDischargeTime < dischargeCooldown) return;
-
-        foreach (ContactPoint2D contact in col.contacts)
-        {
-            // normal.y > 0.5 表示碰撞来自下方（玩家落在物体上方）
-            if (contact.normal.y > 0.5f)
-            {
-                PerformDischarge(contact.point);
-                lastDischargeTime = Time.time;
-                break;
-            }
-        }
-    }
-
-    Collider2D col;
-
-    void Start()
-    {
-        col = GetComponent<Collider2D>();
-    }
-
     bool CheckGrounded()
     {
-        // 从碰撞体底部边缘向下发射短射线，排除自身碰撞体
+        if (col == null) return false;
+
         float bottomY = col.bounds.min.y;
         Vector2 origin = new Vector2(transform.position.x, bottomY - 0.01f);
         float rayLength = 0.15f;
 
-        // 用 IgnoreRaycastLayer 排除自身：先临时设到忽略层再还原
         int originalLayer = gameObject.layer;
-        gameObject.layer = 2; // Layer 2 = IgnoreRaycast
+        gameObject.layer = 2; // IgnoreRaycast
         bool hit = Physics2D.Raycast(origin, Vector2.down, rayLength);
         gameObject.layer = originalLayer;
         return hit;
+    }
+
+    Vector2 GetGroundContactPoint()
+    {
+        if (col == null) return transform.position;
+
+        float bottomY = col.bounds.min.y;
+        Vector2 origin = new Vector2(transform.position.x, bottomY - 0.01f);
+
+        int originalLayer = gameObject.layer;
+        gameObject.layer = 2;
+        RaycastHit2D hit = Physics2D.Raycast(origin, Vector2.down, 0.2f);
+        gameObject.layer = originalLayer;
+
+        return hit.collider != null ? hit.point : new Vector2(transform.position.x, bottomY);
     }
 
     void PerformDischarge(Vector2 point)
@@ -132,7 +146,6 @@ public class PlayerController : MonoBehaviour
         while (elapsed < ringDuration)
         {
             float t = elapsed / ringDuration;
-            // 从 0 扩展到 maxRadius（sprite 外缘 = scale * 0.5，所以 scale = radius * 2）
             float radius = Mathf.Lerp(0.1f, maxRadius, t);
             ring.transform.localScale = Vector3.one * (radius * 2f);
 
@@ -174,7 +187,14 @@ public class PlayerController : MonoBehaviour
         Gizmos.color = Color.yellow;
         Gizmos.DrawWireSphere(transform.position, dischargeRadius);
 
-        Gizmos.color = Color.green;
-        Gizmos.DrawLine(transform.position, transform.position + Vector3.down * 0.6f);
+        if (col != null)
+        {
+            Gizmos.color = Color.green;
+            float bottomY = col.bounds.min.y;
+            Gizmos.DrawLine(
+                new Vector2(transform.position.x, bottomY - 0.01f),
+                new Vector2(transform.position.x, bottomY - 0.16f)
+            );
+        }
     }
 }
