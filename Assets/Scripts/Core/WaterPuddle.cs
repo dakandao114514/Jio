@@ -4,52 +4,45 @@ using System.Collections;
 [RequireComponent(typeof(Collider2D))]
 public class WaterPuddle : MonoBehaviour
 {
-    [Tooltip("玩家踩入水滩后，放电范围放大倍率")]
-    public float dischargeAmplify = 2.5f;
-    [Tooltip("放大后的放电颜色")]
-    public Color amplifiedColor = Color.cyan;
+    [Tooltip("水潭导电时显示的圆环颜色")]
+    public Color conductColor = Color.cyan;
 
     /// <summary>
-    /// 玩家踩入水滩时调用，返回放大后的放电半径
+    /// 玩家踩到水潭时，整个水潭变成导电源，引爆水潭范围内的所有导电体
     /// </summary>
-    public float GetAmplifiedRadius(float baseRadius)
+    public void OnPlayerEnter(Vector2 playerPos, float intensity)
     {
-        return baseRadius * dischargeAmplify;
-    }
+        Vector2 puddleCenter = transform.position;
+        // 用水潭碰撞体的边界作为导电范围
+        Collider2D puddleCol = GetComponent<Collider2D>();
+        float conductRadius = Mathf.Max(puddleCol.bounds.size.x, puddleCol.bounds.size.y) * 0.5f;
 
-    /// <summary>
-    /// 玩家踩入水滩时触发放大效果，直接引爆范围内的所有导电体
-    /// </summary>
-    public void OnPlayerEnter(Vector2 playerPos, float baseRadius, float intensity)
-    {
-        float amplified = baseRadius * dischargeAmplify;
+        // 水潭导电圆环效果
+        StartCoroutine(SpawnConductRing(puddleCenter, conductRadius));
 
-        // 扩散圆环效果
-        StartCoroutine(SpawnAmplifyRing(playerPos, amplified));
-
-        // 范围内所有导电体直接爆炸
-        Collider2D[] hits = Physics2D.OverlapCircleAll(playerPos, amplified, Physics2D.AllLayers);
+        // 引爆水潭范围内的所有导电体
+        Collider2D[] hits = Physics2D.OverlapCircleAll(puddleCenter, conductRadius, Physics2D.AllLayers);
         foreach (var hit in hits)
         {
             IConductive target = hit.GetComponentInParent<IConductive>();
             if (target != null)
             {
-                target.OnDischarge(playerPos, intensity * dischargeAmplify, 0);
+                target.OnDischarge(puddleCenter, intensity, 0);
             }
         }
     }
 
-    IEnumerator SpawnAmplifyRing(Vector2 center, float maxRadius)
+    IEnumerator SpawnConductRing(Vector2 center, float maxRadius)
     {
-        GameObject ring = new GameObject("WaterAmplifyRing");
+        GameObject ring = new GameObject("WaterConductRing");
         ring.transform.position = center;
 
         SpriteRenderer sr = ring.AddComponent<SpriteRenderer>();
         sr.sprite = CreateRingSprite();
-        sr.color = amplifiedColor;
+        sr.color = conductColor;
         sr.sortingOrder = 9;
 
-        float duration = 0.5f;
+        float duration = 0.4f;
         float elapsed = 0f;
         while (elapsed < duration)
         {
@@ -57,8 +50,8 @@ public class WaterPuddle : MonoBehaviour
             float radius = Mathf.Lerp(0.1f, maxRadius, t);
             ring.transform.localScale = Vector3.one * (radius * 2f);
 
-            Color c = amplifiedColor;
-            c.a = Mathf.Lerp(1f, 0f, t);
+            Color c = conductColor;
+            c.a = Mathf.Lerp(0.8f, 0f, t);
             sr.color = c;
 
             elapsed += Time.deltaTime;
@@ -93,6 +86,11 @@ public class WaterPuddle : MonoBehaviour
     void OnDrawGizmosSelected()
     {
         Gizmos.color = Color.cyan;
-        Gizmos.DrawWireSphere(transform.position, 3f * dischargeAmplify);
+        Collider2D col = GetComponent<Collider2D>();
+        if (col != null)
+        {
+            float r = Mathf.Max(col.bounds.size.x, col.bounds.size.y) * 0.5f;
+            Gizmos.DrawWireSphere(transform.position, r);
+        }
     }
 }

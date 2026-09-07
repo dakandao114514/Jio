@@ -173,40 +173,32 @@ public class PlayerController : MonoBehaviour
 
     void PerformDischarge(Vector2 point)
     {
-        // 检测玩家是否站在水滩上
-        WaterPuddle puddle = null;
-        Collider2D[] puddleHits = Physics2D.OverlapCircleAll(point, 0.5f, Physics2D.AllLayers);
-        foreach (var h in puddleHits)
-        {
-            puddle = h.GetComponentInParent<WaterPuddle>();
-            if (puddle != null) break;
-        }
-
-        float actualRadius = dischargeRadius;
         float intensity = 1f;
-
         Vector2 playerCenter = transform.position;
 
-        if (puddle != null)
-        {
-            // 在水滩上放电：水潭直接引爆范围内的导电体
-            puddle.OnPlayerEnter(playerCenter, dischargeRadius, intensity);
-            actualRadius = puddle.GetAmplifiedRadius(dischargeRadius);
-        }
-        else
-        {
-            // 正常放电：从玩家中心扩散圆环
-            StartCoroutine(SpawnDischargeRing(playerCenter, dischargeRadius));
+        // 玩家放电圆环大小始终不变
+        StartCoroutine(SpawnDischargeRing(playerCenter, dischargeRadius));
 
-            // 与可放电物体交互
-            Collider2D[] hits = Physics2D.OverlapCircleAll(playerCenter, dischargeRadius, Physics2D.AllLayers);
-            foreach (var hit in hits)
+        // 玩家放电范围内的导电体直接引爆
+        Collider2D[] hits = Physics2D.OverlapCircleAll(playerCenter, dischargeRadius, Physics2D.AllLayers);
+        foreach (var hit in hits)
+        {
+            IConductive target = hit.GetComponentInParent<IConductive>();
+            if (target != null)
             {
-                IConductive target = hit.GetComponentInParent<IConductive>();
-                if (target != null)
-                {
-                    target.OnDischarge(playerCenter, intensity, 0);
-                }
+                target.OnDischarge(playerCenter, intensity, 0);
+            }
+        }
+
+        // 检测玩家是否站在水滩上，水潭整个变成导电源
+        Collider2D[] puddleHits = Physics2D.OverlapCircleAll(playerCenter, dischargeRadius, Physics2D.AllLayers);
+        foreach (var h in puddleHits)
+        {
+            WaterPuddle puddle = h.GetComponentInParent<WaterPuddle>();
+            if (puddle != null)
+            {
+                // 通过水潭导电：以水潭边界引爆范围内的导电体
+                puddle.OnPlayerEnter(playerCenter, intensity);
             }
         }
 
