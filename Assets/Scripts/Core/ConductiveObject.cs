@@ -6,11 +6,19 @@ public class ConductiveObject : MonoBehaviour, IConductive
 {
     [Header("爆炸参数")]
     [Tooltip("基础爆炸推力")]
-    public float baseExplosionForce = 12f;
-    [Tooltip("爆炸影响半径")]
-    public float explosionRadius = 4f;
-    [Tooltip("向其他导电体传播电弧的半径")]
-    public float propagationRadius = 6f;
+    public float baseExplosionForce = 8f;
+    [Tooltip("爆炸影响半径（仅用于推开附近刚体）")]
+    public float explosionRadius = 1.5f;
+
+    [Header("碎片")]
+    [Tooltip("爆炸后裂成的碎片数量")]
+    public int shardCount = 5;
+    [Tooltip("碎片飞出的初速度")]
+    public float shardSpeed = 6f;
+    [Tooltip("碎片存活时间（秒）")]
+    public float shardLifetime = 2f;
+    [Tooltip("碎片大小")]
+    public float shardSize = 0.25f;
 
     [Header("连锁与过载")]
     [Tooltip("最大连锁层数，防止无限递归")]
@@ -21,10 +29,13 @@ public class ConductiveObject : MonoBehaviour, IConductive
     [Header("表现")]
     [Tooltip("扩散圆环持续时间（秒）")]
     public float ringDuration = 0.35f;
+    [Tooltip("扩散圆环最大半径")]
+    public float ringRadius = 1.5f;
     public Color dischargeColor = Color.yellow;
 
     Rigidbody2D rb;
     bool exploding;
+    bool destroyed;
 
     void Awake()
     {
@@ -35,15 +46,17 @@ public class ConductiveObject : MonoBehaviour, IConductive
     {
         if (chainDepth > maxChainDepth) return;
         if (exploding) return;
+        if (destroyed) return;
         exploding = true;
+        destroyed = true;
 
         float overload = 1f + chainDepth * overloadMultiplierPerChain;
         float force = baseExplosionForce * intensity * overload;
 
-        // 自身被炸开
-        Apply2DExplosionForce(rb, origin, explosionRadius, force);
+        // 爆炸圆环效果
+        StartCoroutine(SpawnExplosionRing(transform.position, ringRadius * overload, overload));
 
-        // 推开半径内其他刚体
+        // 推开附近刚体
         Collider2D[] hits = Physics2D.OverlapCircleAll(transform.position, explosionRadius, Physics2D.AllLayers);
         foreach (var hit in hits)
         {
@@ -54,21 +67,45 @@ public class ConductiveObject : MonoBehaviour, IConductive
             }
         }
 
-        // 扩散圆环效果，以物体中心为起点
-        StartCoroutine(SpawnExplosionRing(transform.position, explosionRadius * overload, overload));
+        // 裂成碎片飞出
+        SpawnShards(chainDepth, intensity);
 
-        // 向附近导电体继续传播
-        Collider2D[] propagate = Physics2D.OverlapCircleAll(transform.position, propagationRadius, Physics2D.AllLayers);
-        foreach (var p in propagate)
+        // 销毁自身
+        Destroy(gameObject, 0.05f);
+    }
+
+    void SpawnShards(int chainDepth, float intensity)
+    {
+        for (int i = 0; i < shardCount; i++)
         {
-            IConductive target = p.GetComponentInParent<IConductive>();
-            if (target != null && !ReferenceEquals(target, this))
-            {
-                target.OnDischarge(transform.position, intensity, chainDepth + 1);
-            }
-        }
+            GameObject shard = new GameObject("Shard_" + i);
+            shard.transform.position = transform.position + (Vector3)Random.insideUnitCircle * 0.2f;
+            shard.transform.localScale = Vector3.one * shardSize;
 
-        Invoke(nameof(ResetExploding), 0.1f);
+            SpriteRenderer sr = shard.AddComponent<SpriteRenderer>();
+            sr.sprite = CreateShardSprite();
+            sr.color = dischargeColor;
+            sr.sortingOrder = 5;
+
+            Rigidbody2D shardRb = shard.AddComponent<Rigidbody2D>();
+            shardRb.mass = 0.1f;
+            shardRb.gravityScale = 1f;
+            shardRb.freezeRotation = false;
+
+            CircleCollider2D shardCol = shard.AddComponent<CircleCollider2D>();
+            shardCol.radius = 0.5f;
+
+            // 随机方向飞出
+            float angle = (360f / shardCount) * i + Random.Range(-30f, 30f);
+            Vector2 dir = new Vector2(Mathf.Cos(angle * Mathf.Deg2Rad), Mathf.Sin(angle * Mathf.Deg2Rad));
+            shardRb.velocity = dir * shardSpeed * (1f + chainDepth * overloadMultiplierPerChain);
+
+            // 碎片携带连锁信息
+            ConductiveShard cs = shard.AddComponent<ConductiveShard>();
+            cs.chainDepth = chainDepth + 1;
+            cs.intensity = intensity;
+            cs.lifetime = shardLifetime;
+        }
     }
 
     void ResetExploding() => exploding = false;
@@ -91,7 +128,6 @@ public class ConductiveObject : MonoBehaviour, IConductive
 
         SpriteRenderer sr = ring.AddComponent<SpriteRenderer>();
         sr.sprite = CreateRingSprite();
-        // 连锁越深颜色越偏红
         sr.color = Color.Lerp(dischargeColor, Color.red, Mathf.Clamp01((overload - 1f) * 0.3f));
         sr.sortingOrder = 10;
 
@@ -135,11 +171,29 @@ public class ConductiveObject : MonoBehaviour, IConductive
         return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), (float)size);
     }
 
+    static Sprite CreateShardSprite()
+    {
+        int size = 32;
+        Texture2D tex = new Texture2D(size, size);
+        Color[] pixels = new Color[size * size];
+        Vector2 center = new Vector2(size * 0.5f, size * 0.5f);
+
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                float dist = Vector2.Distance(center, new Vector2(x, y));
+                pixels[y * size + x] = dist <= size * 0.4f ? Color.white : Color.clear;
+            }
+        }
+        tex.SetPixels(pixels);
+        tex.Apply();
+        return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), (float)size);
+    }
+
     void OnDrawGizmosSelected()
     {
         Gizmos.color = Color.red;
         Gizmos.DrawWireSphere(transform.position, explosionRadius);
-        Gizmos.color = Color.magenta;
-        Gizmos.DrawWireSphere(transform.position, propagationRadius);
     }
 }
