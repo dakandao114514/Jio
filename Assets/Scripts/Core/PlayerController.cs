@@ -40,6 +40,14 @@ public class PlayerController : MonoBehaviour
         externalForceLockUntil = Time.time + duration;
     }
 
+    /// <summary>
+    /// 外部调用：重新开始一局时清空中/地面状态，避免出生瞬间误触发放电
+    /// </summary>
+    public void ResetAirState()
+    {
+        wasAirborne = false;
+    }
+
     void Awake()
     {
         rb = GetComponent<Rigidbody2D>();

@@ -122,11 +122,12 @@ public class PrototypeSetup
         player.AddComponent<BoxCollider2D>();
         player.AddComponent<PlayerController>();
 
-        // 终点框（可视化）
+        // 终点框（玩家进入判定胜利）
         GameObject finish = new GameObject("FinishArea");
         finish.transform.position = new Vector3(45f, 1f, 0f);
         finish.transform.localScale = new Vector3(3f, 3f, 1f);
         AddSprite(finish, whiteSprite, new Color(1f, 0.8f, 0f, 0.4f));
+        finish.AddComponent<FinishArea>();
 
         // 摄像机
         Camera mainCam = Camera.main;

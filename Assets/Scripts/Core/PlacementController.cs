@@ -8,7 +8,15 @@ public class PlacementController : MonoBehaviour
     ItemType current = ItemType.Can;
     bool placementActive = true;
     GamePhaseManager phaseManager;
-    readonly List<GameObject> placed = new List<GameObject>();
+
+    /// <summary>道具记录：游玩中被炸掉的罐子（go==null）返回布置阶段时按原位恢复</summary>
+    class PlacedRecord
+    {
+        public GameObject go;
+        public ItemType type;
+        public Vector3 pos;
+    }
+    readonly List<PlacedRecord> placed = new List<PlacedRecord>();
 
     static Sprite _whiteSprite;
 
@@ -77,7 +85,7 @@ public class PlacementController : MonoBehaviour
         return false;
     }
 
-    void PlaceItem(ItemType type, Vector3 pos)
+    GameObject CreateItem(ItemType type, Vector3 pos)
     {
         GameObject go = new GameObject(type.ToString() + "_" + placed.Count);
         go.transform.position = pos;
@@ -111,22 +119,35 @@ public class PlacementController : MonoBehaviour
                 break;
         }
 
-        placed.Add(go);
+        return go;
+    }
+
+    void PlaceItem(ItemType type, Vector3 pos)
+    {
+        GameObject go = CreateItem(type, pos);
+        placed.Add(new PlacedRecord { go = go, type = type, pos = pos });
+    }
+
+    /// <summary>恢复游玩期间被炸掉的道具（返回布置阶段时调用）</summary>
+    public void RestoreDestroyed()
+    {
+        for (int i = 0; i < placed.Count; i++)
+        {
+            if (placed[i].go == null)
+                placed[i].go = CreateItem(placed[i].type, placed[i].pos);
+        }
     }
 
     void DeleteAt(Vector3 pos)
     {
         for (int i = placed.Count - 1; i >= 0; i--)
         {
-            if (placed[i] == null)
-            {
-                placed.RemoveAt(i);
+            if (placed[i].go == null)
                 continue;
-            }
-            SpriteRenderer sr = placed[i].GetComponent<SpriteRenderer>();
+            SpriteRenderer sr = placed[i].go.GetComponent<SpriteRenderer>();
             if (sr != null && sr.bounds.Contains(pos))
             {
-                Destroy(placed[i]);
+                Destroy(placed[i].go);
                 placed.RemoveAt(i);
                 break;
             }
@@ -159,9 +180,20 @@ public class PlacementController : MonoBehaviour
 
     void OnGUI()
     {
+        // 过关界面
+        if (phaseManager != null && phaseManager.Won)
+        {
+            GUI.Label(new Rect(Screen.width / 2 - 50f, Screen.height / 2 - 80f, 100f, 40f), "过关！");
+            if (GUI.Button(new Rect(Screen.width / 2 - 80f, Screen.height / 2 - 20f, 160f, 40f), "返回布置阶段"))
+                phaseManager.BackToPlacement();
+            return;
+        }
+
         if (!placementActive)
         {
             GUI.Label(new Rect(10, 10, 200, 24), "游戏中");
+            if (GUI.Button(new Rect(10, 40, 120f, 30f), "返回布置"))
+                phaseManager.BackToPlacement();
             return;
         }
 
@@ -179,7 +211,7 @@ public class PlacementController : MonoBehaviour
                     case 1: current = ItemType.WaterPuddle; break;
                     case 2: current = ItemType.Insulator; break;
                     case 3:
-                        foreach (var g in placed) if (g) Destroy(g);
+                        foreach (var rec in placed) if (rec.go) Destroy(rec.go);
                         placed.Clear();
                         break;
                     case 4:
