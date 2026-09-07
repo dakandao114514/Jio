@@ -30,6 +30,8 @@ public class PlacementController : MonoBehaviour
             buttonRects[i] = new Rect(10f, 10f + i * (h + gap), w, h);
     }
 
+    public float cameraSpeed = 30f;
+
     public void SetPlacementActive(bool v) { placementActive = v; }
 
     void Update()
@@ -46,6 +48,18 @@ public class PlacementController : MonoBehaviour
 
         if (Input.GetMouseButtonDown(1))
             DeleteAt(MouseWorld());
+
+        // 布置阶段用WASD移动摄像机
+        Camera cam = Camera.main;
+        if (cam != null)
+        {
+            Vector3 camPos = cam.transform.position;
+            if (Input.GetKey(KeyCode.W)) camPos.y += cameraSpeed * Time.deltaTime;
+            if (Input.GetKey(KeyCode.S)) camPos.y -= cameraSpeed * Time.deltaTime;
+            if (Input.GetKey(KeyCode.A)) camPos.x -= cameraSpeed * Time.deltaTime;
+            if (Input.GetKey(KeyCode.D)) camPos.x += cameraSpeed * Time.deltaTime;
+            cam.transform.position = camPos;
+        }
     }
 
     Vector3 MouseWorld()

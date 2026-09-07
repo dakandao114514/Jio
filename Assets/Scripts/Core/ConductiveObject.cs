@@ -7,7 +7,7 @@ public class ConductiveObject : MonoBehaviour, IConductive
     [Header("爆炸参数")]
     [Tooltip("基础爆炸推力")]
     public float baseExplosionForce = 15f;
-    [Tooltip("爆炸影响半径（仅用于推开附近刚体）")]
+    [Tooltip("爆炸影响半径（用于推开附近刚体和检测同步引爆的罐子）")]
     public float explosionRadius = 1.5f;
 
     [Header("碎片")]
@@ -46,19 +46,46 @@ public class ConductiveObject : MonoBehaviour, IConductive
         exploding = true;
         destroyed = true;
 
+        // 检测范围内是否有其他未引爆的罐子，统计同步爆炸数量
+        Collider2D[] nearby = Physics2D.OverlapCircleAll(transform.position, explosionRadius, Physics2D.AllLayers);
+        int syncCount = 1; // 自身算1个
+        foreach (var hit in nearby)
+        {
+            ConductiveObject other = hit.GetComponentInParent<ConductiveObject>();
+            if (other != null && other != this && !other.exploding && !other.destroyed)
+            {
+                syncCount++;
+                // 标记为同步引爆，防止重复计数
+                other.exploding = true;
+                other.destroyed = true;
+            }
+        }
+
+        // 威力叠加：每个同步引爆的罐子增加一倍威力
         float overload = 1f + chainDepth * overloadMultiplierPerChain;
-        float force = baseExplosionForce * intensity * overload;
+        float force = baseExplosionForce * intensity * overload * syncCount;
+
+        Debug.Log($"[ConductiveObject] 爆炸！位置={transform.position}，同步引爆 {syncCount} 个罐子，force={force}");
 
         // 推开附近刚体
         Collider2D[] hits = Physics2D.OverlapCircleAll(transform.position, explosionRadius, Physics2D.AllLayers);
-        Debug.Log($"[ConductiveObject] 爆炸！位置={transform.position}，半径={explosionRadius}，检测到 {hits.Length} 个碰撞体，force={force}");
         foreach (var hit in hits)
         {
             Rigidbody2D otherRb = hit.attachedRigidbody;
-            Debug.Log($"  - {hit.name}，attachedRb={(otherRb != null ? otherRb.name : "null")}，距离={Vector2.Distance(hit.transform.position, transform.position):F2}");
             if (otherRb != null && otherRb != rb)
             {
                 Apply2DExplosionForce(otherRb, transform.position, explosionRadius, force);
+            }
+        }
+
+        // 同步引爆的罐子也立即爆炸
+        foreach (var hit in nearby)
+        {
+            ConductiveObject other = hit.GetComponentInParent<ConductiveObject>();
+            if (other != null && other != this)
+            {
+                // 已标记的同步罐子直接触发爆炸效果（碎片+推力），但不再重复检测
+                other.SyncExplode(chainDepth, intensity);
             }
         }
 
@@ -66,6 +93,15 @@ public class ConductiveObject : MonoBehaviour, IConductive
         SpawnShards(chainDepth, intensity);
 
         // 销毁自身
+        Destroy(gameObject, 0.05f);
+    }
+
+    /// <summary>
+    /// 被同步引爆时调用：只生成碎片和销毁，不再检测附近罐子
+    /// </summary>
+    public void SyncExplode(int chainDepth, float intensity)
+    {
+        SpawnShards(chainDepth, intensity);
         Destroy(gameObject, 0.05f);
     }
 

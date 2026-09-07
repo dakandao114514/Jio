@@ -16,7 +16,7 @@ public class PlayerController : MonoBehaviour
 
     [Header("落地漏电")]
     [Tooltip("漏电影响半径")]
-    public float dischargeRadius = 3f;
+    public float dischargeRadius = 1f;
     [Tooltip("漏电时给自身的额外上推力")]
     public float selfBounceForce = 2f;
     [Tooltip("两次放电之间的最小间隔（秒）")]
@@ -46,6 +46,16 @@ public class PlayerController : MonoBehaviour
         rb.freezeRotation = true;
         rb.interpolation = RigidbodyInterpolation2D.Interpolate;
         rb.gravityScale = 1.5f;
+
+        // 无摩擦物理材质，防止撞墙时卡住上浮
+        Collider2D collider = GetComponent<Collider2D>();
+        if (collider != null && collider.sharedMaterial == null)
+        {
+            PhysicsMaterial2D mat = new PhysicsMaterial2D("PlayerFrictionless");
+            mat.friction = 0f;
+            mat.bounciness = 0f;
+            collider.sharedMaterial = mat;
+        }
     }
 
     void Start()
@@ -101,11 +111,22 @@ public class PlayerController : MonoBehaviour
         {
             velocity.x = h * maxHorizontalSpeed;
         }
+        else if (Time.time < externalForceLockUntil + 0.4f)
+        {
+            // 爆炸锁定结束后的余速窗口：缓慢衰减水平速度，让玩家感受到被炸飞的滑行
+            velocity.x *= 0.92f;
+        }
         else
         {
             velocity.x = 0f;
         }
         rb.velocity = velocity;
+
+        // 撞墙时如果实际上站在地面上，强制标记为落地状态
+        if (grounded)
+        {
+            wasAirborne = false;
+        }
     }
 
     bool IsWallInDirection(float dir)
