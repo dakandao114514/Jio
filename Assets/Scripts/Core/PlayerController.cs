@@ -76,11 +76,26 @@ public class PlayerController : MonoBehaviour
         }
     }
 
+    Collider2D col;
+
+    void Start()
+    {
+        col = GetComponent<Collider2D>();
+    }
+
     bool CheckGrounded()
     {
-        // 检测任何固体表面，不限于 Ground 层
-        float rayLength = 0.6f;
-        return Physics2D.Raycast(transform.position, Vector2.down, rayLength, Physics2D.AllLayers);
+        // 从碰撞体底部边缘向下发射短射线，排除自身碰撞体
+        float bottomY = col.bounds.min.y;
+        Vector2 origin = new Vector2(transform.position.x, bottomY - 0.01f);
+        float rayLength = 0.15f;
+
+        // 用 IgnoreRaycastLayer 排除自身：先临时设到忽略层再还原
+        int originalLayer = gameObject.layer;
+        gameObject.layer = 2; // Layer 2 = IgnoreRaycast
+        bool hit = Physics2D.Raycast(origin, Vector2.down, rayLength);
+        gameObject.layer = originalLayer;
+        return hit;
     }
 
     void PerformDischarge(Vector2 point)
