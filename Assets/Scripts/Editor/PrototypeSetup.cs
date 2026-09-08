@@ -1,6 +1,9 @@
 using UnityEngine;
 using UnityEditor;
 using System.IO;
+using Unity.Netcode;
+using Unity.Netcode.Components;
+using Unity.Netcode.Transports.UTP;
 
 public class PrototypeSetup
 {
@@ -162,6 +165,145 @@ public class PrototypeSetup
 
         Selection.activeGameObject = phaseSystem;
         EditorUtility.DisplayDialog("电极弹射", "布置阶段场景搭建完成！\n\n按 Ctrl+P 运行：\n左键放置道具 / 右键删除\n1=易拉罐 2=积水滩 3=绝缘块\n点击「开始游戏」进入游玩", "确定");
+    }
+
+    [MenuItem("电极弹射/搭建联机场景")]
+    static void BuildNetScene()
+    {
+        EnsureLayer("Ground");
+        Sprite whiteSprite = GetOrCreateWhiteSprite();
+
+        // ===== Player Prefab =====
+        if (!AssetDatabase.IsValidFolder("Assets/Resources"))
+            AssetDatabase.CreateFolder("Assets", "Resources");
+
+        string playerPath = "Assets/Resources/Player.prefab";
+        GameObject pf = new GameObject("Player");
+        AddSprite(pf, whiteSprite, new Color(0.2f, 0.6f, 1f));
+        var pfRb = pf.AddComponent<Rigidbody2D>();
+        pfRb.mass = 1f;
+        pfRb.gravityScale = 1.5f;
+        pfRb.freezeRotation = true;
+        pf.AddComponent<BoxCollider2D>();
+        pf.AddComponent<NetworkObject>();
+        pf.AddComponent<NetworkTransform>();
+        pf.AddComponent<PlayerController>();
+        PrefabUtility.SaveAsPrefabAsset(pf, playerPath);
+        Object.DestroyImmediate(pf);
+        GameObject playerPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(playerPath);
+
+        // ===== Can Prefab =====
+        string canPath = "Assets/Resources/Can.prefab";
+        GameObject canObj = new GameObject("Can");
+        canObj.transform.localScale = new Vector3(0.8f, 0.8f, 1f);
+        AddSprite(canObj, whiteSprite, Color.red);
+        var canRb = canObj.AddComponent<Rigidbody2D>();
+        canRb.mass = 0.5f;
+        canObj.AddComponent<CircleCollider2D>();
+        canObj.AddComponent<NetworkObject>();
+        canObj.AddComponent<NetworkTransform>();
+        var cnt = canObj.GetComponent<NetworkTransform>();
+        cnt.SyncScaleX = cnt.SyncScaleY = cnt.SyncScaleZ = false;
+        canObj.AddComponent<ConductiveObject>();
+        PrefabUtility.SaveAsPrefabAsset(canObj, canPath);
+        Object.DestroyImmediate(canObj);
+        GameObject canPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(canPath);
+
+        // ===== WaterPuddle Prefab =====
+        string puddlePath = "Assets/Resources/WaterPuddle.prefab";
+        GameObject wf = new GameObject("WaterPuddle");
+        wf.transform.localScale = new Vector3(5f, 1f, 1f);
+        AddSprite(wf, whiteSprite, new Color(0f, 0.6f, 1f, 0.5f));
+        wf.AddComponent<NetworkObject>();
+        wf.AddComponent<WaterPuddle>();
+        PrefabUtility.SaveAsPrefabAsset(wf, puddlePath);
+        Object.DestroyImmediate(wf);
+        GameObject puddlePrefab = AssetDatabase.LoadAssetAtPath<GameObject>(puddlePath);
+
+        // ===== Insulator Prefab =====
+        string insulatorPath = "Assets/Resources/Insulator.prefab";
+        GameObject inf = new GameObject("Insulator");
+        inf.transform.localScale = new Vector3(1f, 3f, 1f);
+        int groundLayer = LayerMask.NameToLayer("Ground");
+        if (groundLayer >= 0) inf.layer = groundLayer;
+        AddSprite(inf, whiteSprite, Color.green);
+        var infRb = inf.AddComponent<Rigidbody2D>();
+        infRb.bodyType = RigidbodyType2D.Static;
+        inf.AddComponent<BoxCollider2D>();
+        inf.AddComponent<NetworkObject>();
+        inf.AddComponent<NetworkTransform>();
+        var insNt = inf.GetComponent<NetworkTransform>();
+        insNt.SyncScaleX = insNt.SyncScaleY = insNt.SyncScaleZ = false;
+        PrefabUtility.SaveAsPrefabAsset(inf, insulatorPath);
+        Object.DestroyImmediate(inf);
+        GameObject insulatorPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(insulatorPath);
+
+        // ===== 地面 =====
+        GameObject ground = new GameObject("Ground");
+        ground.transform.localScale = new Vector3(60f, 1f, 1f);
+        ground.transform.position = new Vector3(20f, -0.5f, 0f);
+        ground.layer = LayerMask.NameToLayer("Ground");
+        AddSprite(ground, whiteSprite, Color.gray);
+        var groundRb = ground.AddComponent<Rigidbody2D>();
+        groundRb.bodyType = RigidbodyType2D.Static;
+        ground.AddComponent<BoxCollider2D>();
+
+        // ===== 终点框 =====
+        GameObject finish = new GameObject("FinishArea");
+        finish.transform.position = new Vector3(45f, 1f, 0f);
+        finish.transform.localScale = new Vector3(3f, 3f, 1f);
+        AddSprite(finish, whiteSprite, new Color(1f, 0.8f, 0f, 0.4f));
+        finish.AddComponent<FinishArea>();
+
+        // ===== 摄像机 =====
+        Camera mainCam = Camera.main;
+        if (mainCam == null)
+        {
+            var camObj = new GameObject("Main Camera");
+            camObj.tag = "MainCamera";
+            mainCam = camObj.AddComponent<Camera>();
+        }
+        mainCam.orthographic = true;
+        mainCam.orthographicSize = 8f;
+        mainCam.transform.position = new Vector3(0f, 3f, -10f);
+        var camFollow = mainCam.gameObject.GetComponent<CameraFollow>();
+        if (camFollow == null) camFollow = mainCam.gameObject.AddComponent<CameraFollow>();
+        camFollow.offset = new Vector3(0f, 3f, -10f);
+
+        // ===== 灯光 =====
+        if (Object.FindObjectOfType<Light>() == null)
+        {
+            var light = new GameObject("Directional Light");
+            var l = light.AddComponent<Light>();
+            l.type = LightType.Directional;
+            light.transform.rotation = Quaternion.Euler(50f, -30f, 0f);
+        }
+
+        // ===== NetworkManager =====
+        GameObject netMgr = new GameObject("NetworkManager");
+        var nm = netMgr.AddComponent<NetworkManager>();
+        var transport = netMgr.AddComponent<UnityTransport>();
+        transport.SetConnectionData("127.0.0.1", 7777);
+        // NGO 1.8.x 需要显式赋值 NetworkTransport
+        nm.NetworkConfig.NetworkTransport = transport;
+        nm.NetworkConfig.PlayerPrefab = playerPrefab;
+        // 注册道具 prefab（布置时 Spawn 用）
+        nm.NetworkConfig.Prefabs.Add(new NetworkPrefab { Prefab = canPrefab });
+        nm.NetworkConfig.Prefabs.Add(new NetworkPrefab { Prefab = puddlePrefab });
+        nm.NetworkConfig.Prefabs.Add(new NetworkPrefab { Prefab = insulatorPrefab });
+        netMgr.AddComponent<NetUI>();
+
+        // ===== PhaseSystem（NetworkObject + NetworkBehaviour）=====
+        GameObject phaseSystem = new GameObject("PhaseSystem");
+        phaseSystem.AddComponent<NetworkObject>();
+        phaseSystem.AddComponent<GamePhaseManager>();
+        phaseSystem.AddComponent<PlacementController>();
+
+        Selection.activeGameObject = netMgr;
+        EditorUtility.DisplayDialog("电极弹射",
+            "联机场景搭建完成！\n\nPlayer prefab 已生成在 Assets/Resources/Player.prefab\n\n" +
+            "测试方式：\n1. Ctrl+P 运行，点「启动主机」\n2. File → Build And Run 打包第二实例\n3. 第二实例点「连接」加入\n" +
+            "4. 两端均可布置道具，开始游戏后双人同屏", "确定");
     }
 
     static void AddSprite(GameObject go, Sprite sprite, Color color)

@@ -1,5 +1,7 @@
 using UnityEngine;
 using System.Collections.Generic;
+using Unity.Netcode;
+using Unity.Netcode.Components;
 
 public class PlacementController : MonoBehaviour
 {
@@ -9,7 +11,6 @@ public class PlacementController : MonoBehaviour
     bool placementActive = true;
     GamePhaseManager phaseManager;
 
-    /// <summary>道具记录：游玩中被炸掉的罐子（go==null）返回布置阶段时按原位恢复</summary>
     class PlacedRecord
     {
         public GameObject go;
@@ -19,8 +20,21 @@ public class PlacementController : MonoBehaviour
     readonly List<PlacedRecord> placed = new List<PlacedRecord>();
 
     static Sprite _whiteSprite;
-
     Rect[] buttonRects;
+
+    public float cameraSpeed = 30f;
+
+    // 道具 prefab（运行时从 Resources 加载）
+    static GameObject canPrefab;
+    static GameObject puddlePrefab;
+    static GameObject insulatorPrefab;
+
+    static void LoadPrefabs()
+    {
+        if (canPrefab == null) canPrefab = Resources.Load<GameObject>("Can");
+        if (puddlePrefab == null) puddlePrefab = Resources.Load<GameObject>("WaterPuddle");
+        if (insulatorPrefab == null) insulatorPrefab = Resources.Load<GameObject>("Insulator");
+    }
 
     void Awake()
     {
@@ -30,15 +44,11 @@ public class PlacementController : MonoBehaviour
 
     void BuildButtonRects()
     {
-        float w = 120f;
-        float h = 36f;
-        float gap = 6f;
+        float w = 120f, h = 36f, gap = 6f;
         buttonRects = new Rect[5];
         for (int i = 0; i < 5; i++)
             buttonRects[i] = new Rect(10f, 10f + i * (h + gap), w, h);
     }
-
-    public float cameraSpeed = 30f;
 
     public void SetPlacementActive(bool v) { placementActive = v; }
 
@@ -52,21 +62,20 @@ public class PlacementController : MonoBehaviour
         if (Input.GetKeyDown(KeyCode.Alpha3)) current = ItemType.Insulator;
 
         if (Input.GetMouseButtonDown(0) && !IsPointerOverUI())
-            PlaceItem(current, MouseWorld());
+            phaseManager.PlaceItemServerRpc((int)current, MouseWorld());
 
         if (Input.GetMouseButtonDown(1))
-            DeleteAt(MouseWorld());
+            phaseManager.DeleteItemServerRpc(MouseWorld());
 
-        // 布置阶段用WASD移动摄像机
         Camera cam = Camera.main;
         if (cam != null)
         {
-            Vector3 camPos = cam.transform.position;
-            if (Input.GetKey(KeyCode.W)) camPos.y += cameraSpeed * Time.deltaTime;
-            if (Input.GetKey(KeyCode.S)) camPos.y -= cameraSpeed * Time.deltaTime;
-            if (Input.GetKey(KeyCode.A)) camPos.x -= cameraSpeed * Time.deltaTime;
-            if (Input.GetKey(KeyCode.D)) camPos.x += cameraSpeed * Time.deltaTime;
-            cam.transform.position = camPos;
+            Vector3 p = cam.transform.position;
+            if (Input.GetKey(KeyCode.W)) p.y += cameraSpeed * Time.deltaTime;
+            if (Input.GetKey(KeyCode.S)) p.y -= cameraSpeed * Time.deltaTime;
+            if (Input.GetKey(KeyCode.A)) p.x -= cameraSpeed * Time.deltaTime;
+            if (Input.GetKey(KeyCode.D)) p.x += cameraSpeed * Time.deltaTime;
+            cam.transform.position = p;
         }
     }
 
@@ -79,101 +88,107 @@ public class PlacementController : MonoBehaviour
 
     bool IsPointerOverUI()
     {
-        Vector2 guiMouse = new Vector2(Input.mousePosition.x, Screen.height - Input.mousePosition.y);
+        Vector2 m = new Vector2(Input.mousePosition.x, Screen.height - Input.mousePosition.y);
         foreach (var r in buttonRects)
-            if (r.Contains(guiMouse)) return true;
+            if (r.Contains(m)) return true;
         return false;
     }
 
-    GameObject CreateItem(ItemType type, Vector3 pos)
-    {
-        GameObject go = new GameObject(type.ToString() + "_" + placed.Count);
-        go.transform.position = pos;
-        Sprite sprite = GetWhiteSprite();
+    // ========== 服务端方法（由 GamePhaseManager ServerRpc 调用）==========
 
-        switch (type)
-        {
-            case ItemType.Can:
-                go.transform.localScale = new Vector3(0.8f, 0.8f, 1f);
-                AddSprite(go, sprite, Color.red);
-                Rigidbody2D crb = go.AddComponent<Rigidbody2D>();
-                crb.mass = 0.5f;
-                go.AddComponent<CircleCollider2D>();
-                go.AddComponent<ConductiveObject>();
-                break;
-
-            case ItemType.WaterPuddle:
-                go.transform.localScale = new Vector3(5f, 1f, 1f);
-                AddSprite(go, sprite, new Color(0f, 0.6f, 1f, 0.5f));
-                go.AddComponent<WaterPuddle>();
-                break;
-
-            case ItemType.Insulator:
-                go.transform.localScale = new Vector3(1f, 3f, 1f);
-                int groundLayer = LayerMask.NameToLayer("Ground");
-                if (groundLayer >= 0) go.layer = groundLayer;
-                AddSprite(go, sprite, Color.green);
-                Rigidbody2D irb = go.AddComponent<Rigidbody2D>();
-                irb.bodyType = RigidbodyType2D.Static;
-                go.AddComponent<BoxCollider2D>();
-                break;
-        }
-
-        return go;
-    }
-
-    void PlaceItem(ItemType type, Vector3 pos)
+    public void ServerPlaceItem(ItemType type, Vector3 pos)
     {
         GameObject go = CreateItem(type, pos);
+        var no = go.GetComponent<NetworkObject>();
+        if (no != null) no.Spawn();
         placed.Add(new PlacedRecord { go = go, type = type, pos = pos });
     }
 
-    /// <summary>恢复游玩期间被炸掉的道具（返回布置阶段时调用）</summary>
-    public void RestoreDestroyed()
-    {
-        for (int i = 0; i < placed.Count; i++)
-        {
-            if (placed[i].go == null)
-                placed[i].go = CreateItem(placed[i].type, placed[i].pos);
-        }
-    }
-
-    void DeleteAt(Vector3 pos)
+    public void ServerDeleteAt(Vector3 pos)
     {
         for (int i = placed.Count - 1; i >= 0; i--)
         {
-            if (placed[i].go == null)
-                continue;
-            SpriteRenderer sr = placed[i].go.GetComponent<SpriteRenderer>();
+            if (placed[i].go == null) continue;
+            var sr = placed[i].go.GetComponent<SpriteRenderer>();
             if (sr != null && sr.bounds.Contains(pos))
             {
-                Destroy(placed[i].go);
+                var no = placed[i].go.GetComponent<NetworkObject>();
+                if (no != null && no.IsSpawned) no.Despawn();
+                else Destroy(placed[i].go);
                 placed.RemoveAt(i);
                 break;
             }
         }
     }
 
+    public void ServerClearAll()
+    {
+        foreach (var rec in placed)
+        {
+            if (rec.go)
+            {
+                var no = rec.go.GetComponent<NetworkObject>();
+                if (no != null && no.IsSpawned) no.Despawn();
+                else Destroy(rec.go);
+            }
+        }
+        placed.Clear();
+    }
+
+    public void RestoreDestroyed()
+    {
+        for (int i = 0; i < placed.Count; i++)
+        {
+            if (placed[i].go == null)
+            {
+                placed[i].go = CreateItem(placed[i].type, placed[i].pos);
+                var no = placed[i].go.GetComponent<NetworkObject>();
+                if (no != null) no.Spawn();
+            }
+        }
+    }
+
+    GameObject CreateItem(ItemType type, Vector3 pos)
+    {
+        LoadPrefabs();
+        GameObject prefab = null;
+        switch (type)
+        {
+            case ItemType.Can: prefab = canPrefab; break;
+            case ItemType.WaterPuddle: prefab = puddlePrefab; break;
+            case ItemType.Insulator: prefab = insulatorPrefab; break;
+        }
+        if (prefab == null)
+        {
+            Debug.LogError($"[PlacementController] Prefab未加载！type={type}");
+            return null;
+        }
+
+        // 用 Instantiate(prefab) 而非 new GameObject，保留 NetworkObject 的 globalObjectIdHash
+        GameObject go = Instantiate(prefab);
+        go.transform.position = pos;
+        go.name = type.ToString() + "_" + placed.Count;
+        return go;
+    }
+
     void AddSprite(GameObject go, Sprite sprite, Color color)
     {
-        SpriteRenderer sr = go.AddComponent<SpriteRenderer>();
+        var sr = go.AddComponent<SpriteRenderer>();
         sr.sprite = sprite;
         sr.color = color;
         sr.sortingOrder = 0;
     }
 
-    static Sprite GetWhiteSprite()
+    public static Sprite GetWhiteSprite()
     {
         if (_whiteSprite != null) return _whiteSprite;
-
         int size = 8;
-        Texture2D tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+        var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
         tex.filterMode = FilterMode.Point;
-        Color[] pixels = new Color[size * size];
+        var pixels = new Color[size * size];
         for (int i = 0; i < pixels.Length; i++) pixels[i] = Color.white;
         tex.SetPixels(pixels);
         tex.Apply();
-
         _whiteSprite = Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), (float)size);
         return _whiteSprite;
     }
@@ -185,7 +200,7 @@ public class PlacementController : MonoBehaviour
         {
             GUI.Label(new Rect(Screen.width / 2 - 50f, Screen.height / 2 - 80f, 100f, 40f), "过关！");
             if (GUI.Button(new Rect(Screen.width / 2 - 80f, Screen.height / 2 - 20f, 160f, 40f), "返回布置阶段"))
-                phaseManager.BackToPlacement();
+                phaseManager.BackToPlacementServerRpc();
             return;
         }
 
@@ -193,7 +208,7 @@ public class PlacementController : MonoBehaviour
         {
             GUI.Label(new Rect(10, 10, 200, 24), "游戏中");
             if (GUI.Button(new Rect(10, 40, 120f, 30f), "返回布置"))
-                phaseManager.BackToPlacement();
+                phaseManager.BackToPlacementServerRpc();
             return;
         }
 
@@ -201,7 +216,7 @@ public class PlacementController : MonoBehaviour
         for (int i = 0; i < labels.Length; i++)
         {
             bool isCurrent = (i < 3 && (ItemType)i == current);
-            Color oldColor = GUI.color;
+            Color old = GUI.color;
             if (isCurrent) GUI.color = Color.yellow;
             if (GUI.Button(buttonRects[i], labels[i]))
             {
@@ -210,18 +225,12 @@ public class PlacementController : MonoBehaviour
                     case 0: current = ItemType.Can; break;
                     case 1: current = ItemType.WaterPuddle; break;
                     case 2: current = ItemType.Insulator; break;
-                    case 3:
-                        foreach (var rec in placed) if (rec.go) Destroy(rec.go);
-                        placed.Clear();
-                        break;
-                    case 4:
-                        if (phaseManager != null) phaseManager.StartPlay();
-                        break;
+                    case 3: phaseManager.ClearAllServerRpc(); break;
+                    case 4: phaseManager.StartPlayServerRpc(); break;
                 }
             }
-            GUI.color = oldColor;
+            GUI.color = old;
         }
-
         GUI.Label(new Rect(10, 220, 300, 24), "左键放置 / 右键删除 / 1·2·3 切换");
     }
 }

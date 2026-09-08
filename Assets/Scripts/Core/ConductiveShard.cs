@@ -1,8 +1,6 @@
 using UnityEngine;
+using Unity.Netcode;
 
-/// <summary>
-/// 爆炸碎片：飞出后碰到其他导电体才会触发连锁爆炸
-/// </summary>
 [RequireComponent(typeof(Rigidbody2D))]
 public class ConductiveShard : MonoBehaviour
 {
@@ -11,8 +9,9 @@ public class ConductiveShard : MonoBehaviour
     [HideInInspector] public float lifetime;
 
     float spawnTime;
-    // 生成后短暂不触发，避免刚出生就碰到东西
     const float immunityDuration = 0.15f;
+
+    static bool IsServerLogic => NetworkManager.Singleton == null || NetworkManager.Singleton.IsServer;
 
     void Start()
     {
@@ -21,15 +20,14 @@ public class ConductiveShard : MonoBehaviour
 
     void Update()
     {
+        if (!IsServerLogic) return;
         if (Time.time - spawnTime > lifetime)
-        {
             Destroy(gameObject);
-        }
     }
 
     void OnCollisionEnter2D(Collision2D col)
     {
-        // 刚生成后短暂免疫
+        if (!IsServerLogic) return;
         if (Time.time - spawnTime < immunityDuration) return;
 
         IConductive target = col.collider.GetComponentInParent<IConductive>();

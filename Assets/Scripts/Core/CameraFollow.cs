@@ -8,11 +8,27 @@ public class CameraFollow : MonoBehaviour
 
     void LateUpdate()
     {
-        if (target == null) return;
+        Vector3 focusPos;
+        var players = Object.FindObjectsOfType<PlayerController>();
 
-        Vector3 desiredPosition = target.position + offset;
-        transform.position = Vector3.Lerp(transform.position, desiredPosition, smoothSpeed * Time.deltaTime);
-        // 2D 正交相机不需要 LookAt，保持朝 Z 轴正方向即可
+        if (players.Length > 0)
+        {
+            // 多人模式：跟随所有玩家中点
+            Vector3 sum = Vector3.zero;
+            foreach (var p in players) sum += p.transform.position;
+            focusPos = sum / players.Length;
+        }
+        else if (target != null)
+        {
+            focusPos = target.position;
+        }
+        else
+        {
+            return;
+        }
+
+        Vector3 desired = focusPos + offset;
+        transform.position = Vector3.Lerp(transform.position, desired, smoothSpeed * Time.deltaTime);
         transform.rotation = Quaternion.identity;
     }
 }
