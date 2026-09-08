@@ -11,11 +11,15 @@ public class PlacementController : MonoBehaviour
     bool placementActive = true;
     GamePhaseManager phaseManager;
 
+    // 玩家颜色（与 PlayerController 一致）
+    static readonly Color[] PlayerColors = { new Color(0.2f, 0.6f, 1f), new Color(1f, 0.5f, 0.2f) };
+
     class PlacedRecord
     {
         public GameObject go;
         public ItemType type;
         public Vector3 pos;
+        public ulong ownerId; // 谁放的
     }
     readonly List<PlacedRecord> placed = new List<PlacedRecord>();
 
@@ -96,24 +100,27 @@ public class PlacementController : MonoBehaviour
 
     // ========== 服务端方法（由 GamePhaseManager ServerRpc 调用）==========
 
-    public void ServerPlaceItem(ItemType type, Vector3 pos)
+    public void ServerPlaceItem(ItemType type, Vector3 pos, ulong ownerId)
     {
-        GameObject go = CreateItem(type, pos);
+        GameObject go = CreateItem(type, pos, ownerId);
+        if (go == null) return;
         var no = go.GetComponent<NetworkObject>();
         if (no != null) no.Spawn();
-        placed.Add(new PlacedRecord { go = go, type = type, pos = pos });
+        placed.Add(new PlacedRecord { go = go, type = type, pos = pos, ownerId = ownerId });
     }
 
-    public void ServerDeleteAt(Vector3 pos)
+    public void ServerDeleteAt(Vector3 pos, ulong requesterId)
     {
         for (int i = placed.Count - 1; i >= 0; i--)
         {
             if (placed[i].go == null) continue;
+            // 只能删除自己放的道具
+            if (placed[i].ownerId != requesterId) continue;
             var sr = placed[i].go.GetComponent<SpriteRenderer>();
             if (sr != null && sr.bounds.Contains(pos))
             {
                 var no = placed[i].go.GetComponent<NetworkObject>();
-                if (no != null && no.IsSpawned) no.Despawn();
+                if (no != null && no.IsSpawned) no.Despawn(true);
                 else Destroy(placed[i].go);
                 placed.RemoveAt(i);
                 break;
@@ -121,18 +128,16 @@ public class PlacementController : MonoBehaviour
         }
     }
 
-    public void ServerClearAll()
+    public void ServerClearAll(ulong requesterId)
     {
-        foreach (var rec in placed)
+        for (int i = placed.Count - 1; i >= 0; i--)
         {
-            if (rec.go)
-            {
-                var no = rec.go.GetComponent<NetworkObject>();
-                if (no != null && no.IsSpawned) no.Despawn();
-                else Destroy(rec.go);
-            }
+            if (placed[i].go == null || placed[i].ownerId != requesterId) continue;
+            var no = placed[i].go.GetComponent<NetworkObject>();
+            if (no != null && no.IsSpawned) no.Despawn(true);
+            else Destroy(placed[i].go);
+            placed.RemoveAt(i);
         }
-        placed.Clear();
     }
 
     public void RestoreDestroyed()
@@ -141,14 +146,15 @@ public class PlacementController : MonoBehaviour
         {
             if (placed[i].go == null)
             {
-                placed[i].go = CreateItem(placed[i].type, placed[i].pos);
+                placed[i].go = CreateItem(placed[i].type, placed[i].pos, placed[i].ownerId);
+                if (placed[i].go == null) continue;
                 var no = placed[i].go.GetComponent<NetworkObject>();
                 if (no != null) no.Spawn();
             }
         }
     }
 
-    GameObject CreateItem(ItemType type, Vector3 pos)
+    GameObject CreateItem(ItemType type, Vector3 pos, ulong ownerId)
     {
         LoadPrefabs();
         GameObject prefab = null;
@@ -164,19 +170,19 @@ public class PlacementController : MonoBehaviour
             return null;
         }
 
-        // 用 Instantiate(prefab) 而非 new GameObject，保留 NetworkObject 的 globalObjectIdHash
         GameObject go = Instantiate(prefab);
         go.transform.position = pos;
         go.name = type.ToString() + "_" + placed.Count;
-        return go;
-    }
 
-    void AddSprite(GameObject go, Sprite sprite, Color color)
-    {
-        var sr = go.AddComponent<SpriteRenderer>();
-        sr.sprite = sprite;
-        sr.color = color;
-        sr.sortingOrder = 0;
+        // 按放置者颜色设置 NetworkVariable（Spawn 后自动同步到客户端）
+        if (type == ItemType.Can)
+        {
+            int colorIdx = (int)(ownerId % (ulong)PlayerColors.Length);
+            var co = go.GetComponent<ConductiveObject>();
+            if (co != null) co.OwnerColorIndex.Value = colorIdx;
+        }
+
+        return go;
     }
 
     public static Sprite GetWhiteSprite()
@@ -195,7 +201,6 @@ public class PlacementController : MonoBehaviour
 
     void OnGUI()
     {
-        // 过关界面
         if (phaseManager != null && phaseManager.Won)
         {
             GUI.Label(new Rect(Screen.width / 2 - 50f, Screen.height / 2 - 80f, 100f, 40f), "过关！");
@@ -231,6 +236,6 @@ public class PlacementController : MonoBehaviour
             }
             GUI.color = old;
         }
-        GUI.Label(new Rect(10, 220, 300, 24), "左键放置 / 右键删除 / 1·2·3 切换");
+        GUI.Label(new Rect(10, 220, 300, 24), "左键放置 / 右键删除(仅自己放的) / 1·2·3 切换");
     }
 }

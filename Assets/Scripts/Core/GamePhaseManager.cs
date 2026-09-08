@@ -53,7 +53,7 @@ public class GamePhaseManager : NetworkBehaviour
     {
         if (phase == GamePhase.Placement)
         {
-            // 冻结所有玩家
+            // 冻结所有玩家并重置到出生点
             foreach (var p in Object.FindObjectsOfType<PlayerController>())
             {
                 p.enabled = false;
@@ -62,6 +62,14 @@ public class GamePhaseManager : NetworkBehaviour
                 {
                     rb.velocity = Vector2.zero;
                     rb.bodyType = RigidbodyType2D.Static;
+                }
+                // 按客户端ID回到各自出生点
+                float xOff = (p.OwnerClientId == 0) ? -1f : 1f;
+                Vector3 spawn = new Vector3(xOff, 1f, 0f);
+                if (p.IsServer)
+                {
+                    p.transform.position = spawn;
+                    rb.position = spawn;
                 }
             }
             if (cameraFollow != null) cameraFollow.enabled = false;
@@ -139,21 +147,21 @@ public class GamePhaseManager : NetworkBehaviour
     // ========== 道具布置 ServerRpc ==========
 
     [ServerRpc(RequireOwnership = false)]
-    public void PlaceItemServerRpc(int typeInt, Vector3 pos)
+    public void PlaceItemServerRpc(int typeInt, Vector3 pos, ServerRpcParams rpcParams = default)
     {
-        placementController.ServerPlaceItem((PlacementController.ItemType)typeInt, pos);
+        placementController.ServerPlaceItem((PlacementController.ItemType)typeInt, pos, rpcParams.Receive.SenderClientId);
     }
 
     [ServerRpc(RequireOwnership = false)]
-    public void DeleteItemServerRpc(Vector3 pos)
+    public void DeleteItemServerRpc(Vector3 pos, ServerRpcParams rpcParams = default)
     {
-        placementController.ServerDeleteAt(pos);
+        placementController.ServerDeleteAt(pos, rpcParams.Receive.SenderClientId);
     }
 
     [ServerRpc(RequireOwnership = false)]
-    public void ClearAllServerRpc()
+    public void ClearAllServerRpc(ServerRpcParams rpcParams = default)
     {
-        placementController.ServerClearAll();
+        placementController.ServerClearAll(rpcParams.Receive.SenderClientId);
     }
 
     // ========== 视觉同步 ClientRpc（仅碎片和圆环）==========

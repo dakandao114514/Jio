@@ -84,6 +84,17 @@ public class PlayerController : NetworkBehaviour
         }
 
         col = GetComponent<Collider2D>();
+
+        // 布置阶段自我冻结，防止连接后立即跳跃
+        if (GamePhaseManager.Instance != null && GamePhaseManager.Instance.Phase == GamePhase.Placement)
+        {
+            enabled = false;
+            if (IsServer)
+            {
+                rb.bodyType = RigidbodyType2D.Static;
+                rb.velocity = Vector2.zero;
+            }
+        }
     }
 
     void Update()

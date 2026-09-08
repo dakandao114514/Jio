@@ -2,7 +2,7 @@ using UnityEngine;
 using Unity.Netcode;
 
 [RequireComponent(typeof(Rigidbody2D))]
-public class ConductiveObject : MonoBehaviour, IConductive
+public class ConductiveObject : NetworkBehaviour, IConductive
 {
     [Header("爆炸参数")]
     public float baseExplosionForce = 15f;
@@ -21,6 +21,11 @@ public class ConductiveObject : MonoBehaviour, IConductive
     [Header("表现")]
     public Color dischargeColor = Color.yellow;
 
+    /// <summary>放置者颜色索引（0=蓝，1=橙），通过网络同步</summary>
+    public NetworkVariable<int> OwnerColorIndex = new NetworkVariable<int>(0);
+
+    static readonly Color[] PlayerColors = { new Color(0.2f, 0.6f, 1f), new Color(1f, 0.5f, 0.2f) };
+
     Rigidbody2D rb;
     bool exploding;
     bool destroyed;
@@ -30,6 +35,20 @@ public class ConductiveObject : MonoBehaviour, IConductive
     void Awake()
     {
         rb = GetComponent<Rigidbody2D>();
+    }
+
+    public override void OnNetworkSpawn()
+    {
+        base.OnNetworkSpawn();
+        ApplyColor();
+        OwnerColorIndex.OnValueChanged += (_, _) => ApplyColor();
+    }
+
+    void ApplyColor()
+    {
+        int idx = OwnerColorIndex.Value % PlayerColors.Length;
+        var sr = GetComponent<SpriteRenderer>();
+        if (sr != null) sr.color = PlayerColors[idx];
     }
 
     public void OnDischarge(Vector3 origin, float intensity, int chainDepth)
@@ -56,13 +75,15 @@ public class ConductiveObject : MonoBehaviour, IConductive
 
         float overload = 1f + chainDepth * overloadMultiplierPerChain;
         float force = baseExplosionForce * intensity * overload * syncCount;
+        // 罐子越多爆炸范围越大：每个额外罐子增加 50% 半径
+        float actualRadius = explosionRadius * (1f + (syncCount - 1) * 0.5f);
 
-        Collider2D[] hits = Physics2D.OverlapCircleAll(transform.position, explosionRadius, Physics2D.AllLayers);
+        Collider2D[] hits = Physics2D.OverlapCircleAll(transform.position, actualRadius, Physics2D.AllLayers);
         foreach (var hit in hits)
         {
             var otherRb = hit.attachedRigidbody;
             if (otherRb != null && otherRb != rb)
-                Apply2DExplosionForce(otherRb, transform.position, explosionRadius, force);
+                Apply2DExplosionForce(otherRb, transform.position, actualRadius, force);
         }
 
         foreach (var hit in nearby)
